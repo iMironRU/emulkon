@@ -347,7 +347,7 @@ static void testHttpClient() {
     auto http = makeHttpClient("unit");
     {
         LoopbackServer srv({"HTTP/1.1 201 Created\r\nContent-Length: 11\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}",
-                            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nЖу\r\n6\r\nрнал!\r\n0\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nЖу\r\n9\r\nрнал!\r\n0\r\n\r\n",
                             "HTTP/1.1 404 Not Found\r\n\r\nнет такого",
                             "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nda"});
         HttpResponse r = http->post(srv.url("/api/v1/sessions?x=1"), "{\"a\":1}", {{"X-Emulkon-Session", "s1"}}, 3000);
