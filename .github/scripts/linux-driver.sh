@@ -26,6 +26,9 @@ unzip -q "$work/sdk.zip" -d "$work/sdk"
 sdk="$(dirname "$(find "$work/sdk" -name ComponentBase.h | head -n 1)")"
 [ -f "$sdk/ComponentBase.h" ] || { echo "В секрете ONEC_SDK_B64 нет ComponentBase.h"; exit 1; }
 
+# Checkout в контейнере принадлежит другому пользователю — git (штамп VCS в go build) иначе отказывается.
+git config --global --add safe.directory "$root"
+
 # Сервер эмуляции для стенда: свой порт и временные данные.
 (cd "$root/server" && go build -o "$work/emulkon" ./cmd/emulkon)
 "$work/emulkon" -addr 127.0.0.1:8799 -data "$work/data" -downloads "$work" > "$work/server.log" 2>&1 &
