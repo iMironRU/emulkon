@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Сервер — ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Не отформатировано gofmt:"; echo "$unformatted"; exit 1; fi
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+
+  windows:
+    name: Windows — драйвер, трей, консоль, установщик
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: Тулчейн C++ (clang-cl, MSVC и Windows SDK раннера)
+        shell: pwsh
+        run: .github/scripts/ci-env.ps1
+      - name: SDK Native API 1С
+        shell: pwsh
+        env:
+          ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
+        run: .github/scripts/onec-sdk.ps1
+      - name: Сборка и тесты — всё
+        if: env.HAVE_ONEC_SDK == '1'
+        shell: powershell
+        run: .\build.ps1
+      - name: Сборка и тесты — без драйвера (нет SDK 1С)
+        if: env.HAVE_ONEC_SDK != '1'
+        shell: powershell
+        run: |
+          .\tray\build.ps1
+          .\console\build.ps1
+      - name: Дистрибутив
+        if: env.HAVE_ONEC_SDK == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulkon-${{ github.sha }}
+          path: |
+            dist/downloads/*
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,30 @@
+// Значок и версия оснастки. Значок копирует CMake в каталог сборки (путь латиницей).
+1 ICON "@CMAKE_CURRENT_BINARY_DIR@/emulkon.ico"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x2L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041904b0"
+        BEGIN
+            VALUE "CompanyName", "imiron.ru"
+            VALUE "FileDescription", "Emulkon MMC snap-in: 1C BPO equipment emulator console"
+            VALUE "FileVersion", "@PROJECT_VERSION@"
+            VALUE "InternalName", "EmulkonSnapIn"
+            VALUE "OriginalFilename", "EmulkonSnapIn.dll"
+            VALUE "ProductName", "Emulkon"
+            VALUE "ProductVersion", "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x419, 1200
+    END
+END

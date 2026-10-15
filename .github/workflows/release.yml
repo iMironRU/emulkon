@@ -1,0 +1,58 @@
+name: Релиз
+
+# Тег vX.Y.Z (совпадает с файлом VERSION) — полная сборка с тестами и релиз GitHub: установщик, пакет драйвера,
+# DLL драйвера для самообновления и SHA256SUMS. Описание — раздел версии из CHANGELOG.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Сборка и релиз
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: Тег совпадает с VERSION
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -TotalCount 1).Trim()
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Тег ${{ github.ref_name }} не совпадает с VERSION ($version)" }
+          "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Тулчейн C++ (clang-cl, MSVC и Windows SDK раннера)
+        shell: pwsh
+        run: .github/scripts/ci-env.ps1
+      - name: SDK Native API 1С
+        shell: pwsh
+        env:
+          ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
+        run: .github/scripts/onec-sdk.ps1 -Required
+      - name: Сборка и тесты
+        shell: powershell
+        run: .\build.ps1
+      - name: Файлы релиза и SHA256SUMS
+        shell: pwsh
+        run: |
+          $v = $env:VERSION
+          $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll"
+          New-Item -ItemType Directory -Force release | Out-Null
+          foreach ($f in $files) { Copy-Item (Join-Path dist/downloads $f) release }
+          Push-Location release
+          $sums = foreach ($f in $files) { "{0}  {1}" -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), $f }
+          [IO.File]::WriteAllText((Join-Path $PWD "SHA256SUMS"), ($sums -join "`n") + "`n")
+          Pop-Location
+          Get-Content release/SHA256SUMS
+          .github/scripts/release-notes.ps1 -Version $v | Out-File notes.md -Encoding utf8
+      - name: Релиз GitHub
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" (Get-ChildItem release).FullName `
+            --title "Эмулкон $env:VERSION" --notes-file notes.md --verify-tag

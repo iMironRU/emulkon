@@ -1,0 +1,1346 @@
+openapi: 3.1.0
+info:
+  title: Эмулкон — Device API и Control API
+  version: 0.8.0
+  description: |
+    Формальная спецификация протоколов сервера эмуляции (ARCHITECTURE §5, §9).
+    Правила и пояснения — в docs/protocol.md.
+
+    Эндпоинты с `x-status: planned` описаны заранее, чтобы под них проектировалась
+    компонента и UI, но в сервере ещё не реализованы.
+servers:
+  - url: http://127.0.0.1:8737
+    description: локальный запуск по умолчанию
+
+tags:
+  - name: device
+    description: Device API — компонента-драйвер ↔ сервер (/api/v1)
+  - name: control
+    description: Control API — веб-UI и автотесты ↔ сервер (/control/v1)
+  - name: downloads
+    description: Загрузки и самообновление драйвера — открыты без токенов (docs/protocol.md §1.5)
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [device]
+      operationId: getHealth
+      summary: Проверка живости
+      security: []
+      responses:
+        "200":
+          description: Сервер работает
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /api/v1/sessions:
+    post:
+      tags: [device]
+      operationId: openSession
+      summary: Открыть сессию компоненты
+      description: |
+        Компонента вызывает при `ConnectEquipment` из БПО. Привязывает рабочее место к
+        виртуальному устройству: одно устройство на пару (workstation_id, тип оборудования);
+        повторное открытие даёт новую сессию к тому же устройству.
+        Отказы (неверный токен, неизвестный тип) пишутся в журнал.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionRequest" }
+      responses:
+        "200":
+          description: Сессия открыта
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Неверный токен устройства (`bad_token`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/sessions/{session_id}:
+    delete:
+      tags: [device]
+      operationId: closeSession
+      summary: Закрыть сессию компоненты
+      description: |
+        Компонента закрывает пробную сессию «Теста устройства». После DisconnectEquipment сервер
+        закрывает сессию сам. Неизвестная сессия — тоже 200. В журнал — session.closed.
+      security: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Сессии больше нет }
+
+  /api/v1/downloads:
+    get:
+      tags: [downloads]
+      operationId: getDownloads
+      summary: Каталог загрузок и поддержка оборудования
+      description: Данные страницы /downloads. Самые новые файлы каждого вида из каталога загрузок.
+      security: []
+      responses:
+        "200":
+          description: Каталог
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadsCatalog" }
+
+  /api/v1/driver/update:
+    get:
+      tags: [downloads]
+      operationId: checkDriverUpdate
+      summary: Есть ли DLL драйвера новее
+      description: Дополнительное действие драйвера «Проверить обновление драйвера».
+      security: []
+      parameters:
+        - { name: version, in: query, required: true, schema: { type: string, examples: [0.2.0] } }
+        - { name: arch, in: query, required: true, schema: { type: string, enum: [x86_64, i386] } }
+      responses:
+        "200":
+          description: Ответ
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [current, update_available]
+                properties:
+                  current: { type: string }
+                  update_available: { type: boolean }
+                  latest: { $ref: "#/components/schemas/DownloadFile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /downloads/{file}:
+    get:
+      tags: [downloads]
+      operationId: downloadFile
+      summary: Скачать файл дистрибутива
+      description: |
+        Только файлы с именами из docs/protocol.md §1.5. Каждое скачивание — запись `download`
+        в журнале; рабочее место — из заголовка `X-Emulkon-Workstation`.
+      security: []
+      parameters:
+        - { name: file, in: path, required: true, schema: { type: string, examples: [EmulkonDriver_0.2.0.zip] } }
+        - { name: X-Emulkon-Workstation, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Файл
+          content:
+            application/octet-stream: {}
+            application/zip: {}
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/devices/{device_id}/commands:
+    post:
+      tags: [device]
+      operationId: executeCommand
+      summary: Выполнить метод драйвера
+      description: |
+        Один вызов метода драйвера из 1С. Параметры позиционные, как в Native API:
+        компонента передаёт их массивом и записывает обратно массив из ответа —
+        так 1С получает выходные параметры.
+
+        Идемпотентно по `request_id` в пределах устройства: повтор возвращает сохранённый
+        ответ (в том числе если первый запрос ещё выполняется — повтор ждёт его).
+        Повтор того же `request_id` с другим методом или параметрами — 409.
+        Ошибки устройства (нет бумаги, отказ банка) — это 200 с `result: false`;
+        HTTP-ошибки означают сбой транспорта или сессии.
+      security: [{ session: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommandRequest" }
+      responses:
+        "200":
+          description: Метод выполнен (успешно или с ошибкой устройства)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommandResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SessionUnknown" }
+        "403": { $ref: "#/components/responses/WrongDevice" }
+        "409":
+          description: request_id уже использован с другим содержимым (`request_id_conflict`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Журнал недоступен — команда не выполнялась (`unavailable`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/devices/{device_id}/events:
+    get:
+      tags: [device]
+      operationId: streamDeviceEvents
+      summary: Поток событий устройства (SSE)
+      description: |
+        Сервер → компонента: штрихкод, данные карты, вес, нажатие на дисплее (docs/protocol.md §1.4).
+        Сначала пропущенные по курсору, затем `event: ready`, затем новые: `id: <event_id>`,
+        `event: device`, `data: DeviceEvent`. Пинг — комментарий раз в 15 с, он же продлевает сессию.
+        Курсор — заголовок `Last-Event-ID` или `?cursor=`; без курсора — только новые события.
+      security: [{ session: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Поток text/event-stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/DeviceEvent" }
+        "401": { $ref: "#/components/responses/SessionUnknown" }
+        "403": { $ref: "#/components/responses/WrongDevice" }
+
+  /control/v1/info:
+    get:
+      tags: [control]
+      operationId: getInfo
+      summary: Сведения о сервере для UI
+      responses:
+        "200":
+          description: Сведения
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Info" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/devices:
+    get:
+      tags: [control]
+      operationId: listDevices
+      summary: Список устройств и их состояния
+      responses:
+        "200":
+          description: Устройства
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [devices]
+                properties:
+                  devices:
+                    type: array
+                    items: { $ref: "#/components/schemas/DeviceInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/devices/{device_id}:
+    patch:
+      tags: [control]
+      operationId: setDeviceMeta
+      summary: Подпись и заметка устройства
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Meta" }
+      responses:
+        "200":
+          description: Устройство
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [control]
+      operationId: deleteDevice
+      summary: Удалить устройство руками
+      description: |
+        Сервер сам ничего не удаляет (ARCHITECTURE §4.3). Сессии устройства закрываются; если
+        экземпляр подключится снова, появится новое устройство. В журнал — `control.delete_device`.
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      responses:
+        "200": { description: Удалено }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /control/v1/devices/{device_id}/settings/reset:
+    post:
+      tags: [control]
+      operationId: resetDeviceSettings
+      summary: Вернуть устройству настройки класса
+      description: Модель — в исходное состояние, затем настройки класса по умолчанию. В журнал — `control.reset_settings`.
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      responses:
+        "200":
+          description: Устройство
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /control/v1/workstations:
+    get:
+      tags: [control]
+      operationId: listWorkstations
+      summary: Рабочие места
+      responses:
+        "200":
+          description: Рабочие места
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workstations: { type: array, items: { $ref: "#/components/schemas/WorkstationInfo" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/workstations/{workstation_id}:
+    patch:
+      tags: [control]
+      operationId: setWorkstationMeta
+      summary: Подпись и заметка рабочего места (неизвестное заводится)
+      parameters:
+        - name: workstation_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Meta" }
+      responses:
+        "200":
+          description: Рабочее место
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkstationInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/workstations/{workstation_id}/printers:
+    put:
+      tags: [control]
+      operationId: setWorkstationPrinters
+      summary: Принтеры Windows рабочего места (сообщает трей)
+      parameters:
+        - name: workstation_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                printers: { type: array, items: { type: string } }
+                default: { type: string }
+      responses:
+        "200": { description: Принято }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/workstations/{workstation_id}/token:
+    parameters:
+      - name: workstation_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [control]
+      operationId: issueWorkstationToken
+      summary: Выдать рабочему месту токен (прежний перестаёт действовать)
+      description: |
+        Неизвестное место заводится. Токен виден только в этом ответе; на сервере хранится SHA-256.
+        В журнал пишется control.token_issue с последними символами, без токена.
+      responses:
+        "200":
+          description: Новый токен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssuedToken" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [control]
+      operationId: revokeWorkstationToken
+      summary: Отозвать токен рабочего места
+      description: Место снова допускается общим токеном или в открытом режиме; открытые сессии не закрываются.
+      responses:
+        "200": { description: Отозван }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: Рабочее место не найдено }
+
+  /control/v1/devices/{device_id}/reprint:
+    post:
+      tags: [control]
+      operationId: reprintLastDocument
+      summary: Напечатать последний документ ленты ещё раз
+      description: Пишет запись device.reprint (payload — документ и output с print=true); её печатает трей рабочего места.
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      responses:
+        "200": { description: Отправлено }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Устройство ещё ничего не печатало
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /control/v1/types:
+    get:
+      tags: [control]
+      operationId: listTypes
+      summary: Классы устройств — схема ключей состояния и настройки по умолчанию
+      responses:
+        "200":
+          description: Классы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  types: { type: array, items: { $ref: "#/components/schemas/TypeInfo" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/types/{key}/defaults:
+    put:
+      tags: [control]
+      operationId: setTypeDefaults
+      summary: Настройки класса по умолчанию (целиком)
+      description: |
+        Только ключи схемы с setting=true; значения проверяет модель. Получает каждое новое
+        устройство класса; существующие не меняются. В журнал — `control.type_defaults`.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string, examples: [kkt] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+            examples:
+              kkt: { value: { line_length: 48 } }
+      responses:
+        "200":
+          description: Класс
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TypeInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /control/v1/devices/{device_id}/state:
+    put:
+      tags: [control]
+      operationId: setDeviceState
+      summary: Задать состояние модели (бумага, крышка, ФН, ОФД, вес…)
+      description: |
+        Ключи свои у каждой модели (ККТ — docs/models/kkt.md). Применяются все вместе
+        или ни один; неизвестный ключ — 400 с перечнем допустимых. Изменение пишется
+        в журнал (`control.set_state`). Ключи-настройки (схема класса, setting=true) сохраняются
+        у устройства и переживают перезапуск сервера (docs/protocol.md §2.3).
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+            examples:
+              paperOut: { value: { paper: false } }
+              expireShift: { value: { shift_opened_hours_ago: 25 } }
+      responses:
+        "200":
+          description: Состояние применено; в ответе — устройство с новым состоянием
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Устройство не найдено (`not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /control/v1/devices/{device_id}/prints:
+    get:
+      tags: [control]
+      operationId: getDevicePrints
+      summary: Лента печати устройства (чеки, отчёты, слипы)
+      description: Последние напечатанные документы, новые первыми. У модели без печати — пустой список.
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        "200":
+          description: Документы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prints:
+                    type: array
+                    items: { $ref: "#/components/schemas/PrintedDocument" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Устройство не найдено (`not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /control/v1/devices/{device_id}/events:
+    post:
+      tags: [control]
+      operationId: emitDeviceEvent
+      summary: Событие устройства для 1С как есть
+      description: |
+        Событие уходит компонентам, которые слушают поток устройства (docs/protocol.md §1.4), и
+        в журнал. Имя — из требований: Barcode, BarcodeBase64, TracksData, TracksDataBase64, KeyPress,
+        RFIDData, RFID, DriverError, Weighting, OnClick (и русские написания). Сканы и карты
+        удобнее действиями scan и swipe — они собирают данные.
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceEvent" }
+      responses:
+        "200":
+          description: Событие отправлено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/DeviceEvent" }
+                  listeners: { type: integer, description: Сколько компонент его получили }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /control/v1/devices/{device_id}/prompt:
+    post:
+      tags: [control]
+      operationId: respondPrompt
+      summary: Ответ с экрана устройства
+      description: |
+        Человек ответил на экране устройства, пока команда драйвера ждёт: приложил карту, отказ
+        банка, отмена на терминале (docs/models/acquiring.md); ввёл вес на весах
+        (docs/models/scales.md). Итог — запись device.prompt_done в журнале (docs/protocol.md §2.0).
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt_id, action]
+              properties:
+                prompt_id: { type: string }
+                action: { type: string, enum: [card, decline, insufficient, wrong_pin, weigh, cancel] }
+                card: { type: string, enum: [mir, visa, mastercard, unionpay, sbp], description: "Для action=card; пусто — карта по умолчанию" }
+                value:
+                  type: number
+                  description: "Значение поля ввода запроса (input), в его пределах; нужно для любой кнопки, кроме cancel. Весы — вес, кг"
+      responses:
+        "200": { description: Ответ принят }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Запроса уже нет — отвечен, истёк или снят (`prompt_gone`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /control/v1/devices/{device_id}/actions/{name}:
+    post:
+      tags: [control]
+      operationId: deviceAction
+      summary: Действие человека на устройстве
+      description: |
+        Человек что-то сделал на самом устройстве: напечатал этикетку на весах (`print_label`
+        `{"plu": 1, "weight": 0.532}`), открыл картинку товара (`image` `{"plu": 1}`) —
+        docs/models/scales.md. Действие идёт в общей очереди команд устройства; в журнал пишутся
+        control.action и напечатанное (device.print).
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, examples: [print_label, scan, swipe, click, collect, add_tag], description: "Действия моделей — docs/models/" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, description: Аргументы действия }
+      responses:
+        "200":
+          description: Действие выполнено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result: { description: "print_label — PrintedDocument; image — {plu, png_base64}" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Нет устройства или у него нет такого действия (`not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /control/v1/sessions:
+    get:
+      tags: [control]
+      operationId: listSessions
+      summary: Активные сессии (рабочие места)
+      responses:
+        "200":
+          description: Сессии
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items: { $ref: "#/components/schemas/SessionInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/scenarios:
+    get:
+      tags: [control]
+      operationId: listScenarios
+      summary: Правила сценариев сбоев со счётчиками (docs/protocol.md §2.4)
+      responses:
+        "200":
+          description: Правила по порядку
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules: { type: array, items: { $ref: "#/components/schemas/ScenarioRule" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [control]
+      operationId: createScenario
+      summary: Новое правило (включается на лету)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScenarioRule" }
+      responses:
+        "200":
+          description: Правило с id
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScenarioRule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/scenarios/{id}:
+    put:
+      tags: [control]
+      operationId: replaceScenario
+      summary: Заменить правило (в т.ч. включить или выключить); счётчики обнуляются
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScenarioRule" }
+      responses:
+        "200":
+          description: Правило
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScenarioRule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [control]
+      operationId: deleteScenario
+      summary: Удалить правило
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Удалено }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /control/v1/journal:
+    get:
+      tags: [control]
+      operationId: queryJournal
+      summary: Чтение журнала
+      description: |
+        Возвращает последние `limit` подходящих записей по возрастанию seq.
+        Листание назад — `before_seq` = seq первой полученной записи.
+        `format=jsonl` — выгрузка всех подходящих записей файлом (limit не применяется).
+      parameters:
+        - $ref: "#/components/parameters/FDevice"
+        - $ref: "#/components/parameters/FWorkstation"
+        - $ref: "#/components/parameters/FSession"
+        - $ref: "#/components/parameters/FDirection"
+        - $ref: "#/components/parameters/FMethod"
+        - $ref: "#/components/parameters/FCorrelation"
+        - $ref: "#/components/parameters/FSince"
+        - $ref: "#/components/parameters/FUntil"
+        - $ref: "#/components/parameters/FAfterSeq"
+        - $ref: "#/components/parameters/FBeforeSeq"
+        - $ref: "#/components/parameters/FText"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5000, default: 200 }
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, jsonl], default: json }
+      responses:
+        "200":
+          description: Записи
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JournalPage" }
+            application/x-ndjson:
+              schema: { $ref: "#/components/schemas/JournalEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/journal/stream:
+    get:
+      tags: [control]
+      operationId: streamJournal
+      summary: Живой поток журнала (SSE)
+      description: |
+        Сначала дочитка: при курсоре (`after_seq` или заголовок `Last-Event-ID`) — все записи
+        после него, иначе `tail` последних (по умолчанию 0). Затем `event: ready`,
+        затем новые записи по мере появления. Фильтры — как у /control/v1/journal.
+        Каждые 15 с — комментарий `: ping`. Если клиент не успевает читать, сервер шлёт
+        `event: lagged` и закрывает поток — клиент переподключается с курсором.
+
+        События:
+        - `event: entry`, `id: <seq>`, `data: JournalEntry`
+        - `event: ready`, `data: {"seq": <последний seq на момент подписки>}`
+        - `event: lagged`, `data: {}`
+      parameters:
+        - $ref: "#/components/parameters/FDevice"
+        - $ref: "#/components/parameters/FWorkstation"
+        - $ref: "#/components/parameters/FSession"
+        - $ref: "#/components/parameters/FDirection"
+        - $ref: "#/components/parameters/FMethod"
+        - $ref: "#/components/parameters/FCorrelation"
+        - $ref: "#/components/parameters/FAfterSeq"
+        - $ref: "#/components/parameters/FText"
+        - name: tail
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 5000, default: 0 }
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        "200":
+          description: Поток text/event-stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/JournalEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /control/v1/reset:
+    post:
+      tags: [control]
+      operationId: resetState
+      summary: Сброс состояния перед тестом
+      description: |
+        Сбрасывает состояние всех моделей и кэш идемпотентности. Устройства и сессии
+        сохраняются — компонентам не нужно переподключаться. Пишется в журнал (`control.reset`).
+      responses:
+        "200":
+          description: Сброшено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reset_devices: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+security:
+  - control: []
+
+components:
+  securitySchemes:
+    control:
+      type: http
+      scheme: bearer
+      description: Токен Control API (EMULKON_CONTROL_TOKEN). Не задан — авторизация отключена.
+    session:
+      type: apiKey
+      in: header
+      name: X-Emulkon-Session
+      description: Идентификатор сессии из POST /api/v1/sessions.
+
+  parameters:
+    DeviceID:
+      name: device_id
+      in: path
+      required: true
+      schema: { type: string, examples: [kkt-01] }
+    FDevice: { name: device_id, in: query, schema: { type: string } }
+    FWorkstation: { name: workstation_id, in: query, schema: { type: string } }
+    FSession: { name: session_id, in: query, schema: { type: string } }
+    FDirection:
+      name: direction
+      in: query
+      schema: { type: string, enum: [in, out, event, system] }
+    FMethod:
+      name: method
+      in: query
+      description: Одно имя или несколько через запятую (device.print,device.prompt,device.prompt_done)
+      schema: { type: string }
+    FCorrelation: { name: correlation_id, in: query, schema: { type: string } }
+    FSince:
+      name: since
+      in: query
+      description: ts >= since (RFC 3339)
+      schema: { type: string, format: date-time }
+    FUntil:
+      name: until
+      in: query
+      description: ts < until (RFC 3339)
+      schema: { type: string, format: date-time }
+    FAfterSeq:
+      name: after_seq
+      in: query
+      schema: { type: integer, minimum: 0 }
+    FBeforeSeq:
+      name: before_seq
+      in: query
+      schema: { type: integer, minimum: 0 }
+    FText:
+      name: q
+      in: query
+      description: Подстрока в JSON записи, без учёта регистра
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос (`bad_request`, `unknown_equipment_type`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Нужен токен Control API (`unauthorized`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SessionUnknown:
+      description: Сессии нет (сервер перезапущен или сессия просрочена) — открыть новую (`session_unknown`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    WrongDevice:
+      description: Сессия открыта для другого устройства (`wrong_device`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Не найдено (`not_found`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, bad_token, session_unknown, wrong_device,
+                     unknown_equipment_type, not_found, request_id_conflict, internal, unavailable, prompt_gone]
+            message: { type: string }
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string }
+        started_at: { type: string, format: date-time }
+        uptime_s: { type: integer }
+        journal: { $ref: "#/components/schemas/JournalStats" }
+
+    SessionRequest:
+      type: object
+      required: [equipment_type]
+      properties:
+        workstation_id:
+          type: string
+          maxLength: 128
+          examples: [KASSA-01]
+          description: Обязателен, кроме подключения по токену рабочего места — тогда место называет токен
+        workstation_auto:
+          type: boolean
+          description: workstation_id — имя компьютера, а не параметр драйвера; токен рабочего места его заменяет
+        device_token:
+          type: string
+          description: |
+            Токен рабочего места (emk_ws_…, выдаётся в Control API) или общий EMULKON_DEVICE_TOKEN.
+            Месту с выданным токеном нужен его токен даже в открытом режиме (docs/protocol.md §1.1).
+        equipment_type:
+          type: string
+          examples: [KKT]
+          description: |
+            Тип оборудования, как его передала БПО в ConnectEquipment: значение из таблицы
+            «Тип оборудования» требований к драйверам (английское или русское написание:
+            KKT / ККТ, POSTerminal / ЭквайринговыйТерминал, WeighingScales, BarcodeScanner…).
+            Поддерживаемые сервером — /control/v1/info → equipment_types.
+        driver_version: { type: string, examples: [0.2.0] }
+        driver_arch:
+          type: string
+          enum: [x86_64, i386]
+          description: Архитектура DLL драйвера — по ней сервер предлагает обновление (driver_update)
+        interface_revision:
+          type: integer
+          examples: [4008]
+          description: Ревизия требований, которую реализует компонента (GetInterfaceRevision; 4008 = «4.8»)
+        instance_id:
+          type: string
+          maxLength: 512
+          description: |
+            Идентификатор экземпляра «Подключаемого оборудования» в 1С (параметр драйвера InstanceID,
+            ARCHITECTURE §4.3). Есть — устройство одно на пару (instance_id, тип); нет — на пару
+            (workstation_id, тип).
+        instance_name: { type: string, maxLength: 512, description: Наименование экземпляра в 1С (InstanceName) }
+        infobase: { type: string, maxLength: 512, description: База 1С (Infobase) }
+        instance_copy:
+          type: boolean
+          description: Тот же instance_id уже подключён в этом процессе 1С — экземпляр скопировали; сервер заводит отдельное устройство с пометкой copy
+
+    SessionResponse:
+      type: object
+      required: [session_id, device_id, limits]
+      properties:
+        session_id: { type: string }
+        device_id: { type: string, examples: [kkt-01] }
+        limits:
+          type: object
+          properties:
+            default_timeout_ms: { type: integer, examples: [30000] }
+        server_version: { type: string }
+        emulator: { type: boolean, const: true }
+        driver_update:
+          $ref: "#/components/schemas/DownloadFile"
+          description: DLL драйвера новее той, что открыла сессию (есть, только если передан driver_arch)
+
+    DownloadFile:
+      type: object
+      required: [name, url, version, size, sha256]
+      properties:
+        name: { type: string, examples: [EmulkonDriver_0.2.1_win64.dll] }
+        url: { type: string, examples: [/downloads/EmulkonDriver_0.2.1_win64.dll] }
+        version: { type: string }
+        arch: { type: string, enum: [x86_64, i386] }
+        size: { type: integer }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        modified: { type: string, format: date-time }
+
+    DownloadsCatalog:
+      type: object
+      required: [product, server_version, published, driver_dlls, equipment]
+      properties:
+        product: { type: string }
+        server_version: { type: string }
+        interface_revision: { type: string, examples: ["4.8"] }
+        published: { type: boolean, description: "В каталоге загрузок есть файлы" }
+        driver_package: { $ref: "#/components/schemas/DownloadFile" }
+        driver_dlls: { type: array, items: { $ref: "#/components/schemas/DownloadFile" } }
+        setup: { $ref: "#/components/schemas/DownloadFile" }
+        equipment:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/EquipmentType"
+              - type: object
+                properties:
+                  model: { type: string, enum: [full, stub] }
+                  driver: { type: boolean, description: "Тип объявлен в пакете драйвера для БПО" }
+                  features: { type: array, items: { type: string } }
+                  package: { $ref: "#/components/schemas/DownloadFile", description: "Пакет драйвера только с этим типом в INFO.XML" }
+
+    CommandRequest:
+      type: object
+      required: [request_id, method]
+      properties:
+        request_id:
+          type: string
+          maxLength: 128
+          description: Уникален в пределах устройства; повтор = тот же ответ (UUID рекомендуется)
+        method:
+          type: string
+          maxLength: 128
+          examples: [ProcessCheck]
+          description: Английское имя метода из требований к драйверам (как его зарегистрировала компонента)
+        params:
+          type: array
+          maxItems: 64
+          description: |
+            Позиционные параметры вызова в порядке Native API, все — и входные, и выходные.
+            STRING → строка, LONG/DOUBLE → число, BOOL → булево; пустое значение — null.
+            Отсутствует — метод без параметров.
+          items: { $ref: "#/components/schemas/ParamValue" }
+          examples: [["kkt-01", false, "<CheckPackage …/>", ""]]
+        client_ts: { type: string, format: date-time }
+
+    CommandResponse:
+      type: object
+      required: [request_id, result, params, error_code, error_text]
+      properties:
+        request_id: { type: string }
+        result:
+          description: Возвращаемое значение метода — BOOL (булево), LONG (целое) или null, если его нет
+          oneOf:
+            - { type: boolean }
+            - { type: integer }
+            - { type: "null" }
+        params:
+          type: array
+          description: Значения всех параметров после вызова, той же длины, что в запросе; выходные заполнены
+          items: { $ref: "#/components/schemas/ParamValue" }
+        error_code:
+          type: integer
+          description: Код последней ошибки устройства (его же вернёт GetLastError)
+        error_text:
+          type: string
+          description: Описание последней ошибки устройства
+
+    ParamValue:
+      description: Значение параметра Native API
+      oneOf:
+        - { type: string }
+        - { type: number }
+        - { type: boolean }
+        - { type: "null" }
+
+    EquipmentType:
+      type: object
+      properties:
+        key: { type: string, examples: [kkt], description: Префикс device_id }
+        equipment_type: { type: string, examples: [KKT] }
+        equipment_type_ru: { type: string, examples: [ККТ] }
+        title: { type: string, examples: [Контрольно-кассовая техника] }
+
+    DeviceEvent:
+      type: object
+      description: Внешнее событие устройства для 1С — ExternalEvent(Who, What, Data); Who подставляет компонента
+      required: [name]
+      properties:
+        event_id: { type: string, description: "Курсор «эпоха.номер»; в ответе и в потоке" }
+        time: { type: string, format: date-time }
+        name: { type: string, description: bstrWhat, examples: [Barcode, TracksData, Weighting, OnClick, DriverError] }
+        data: { type: string, description: bstrData }
+
+    Info:
+      type: object
+      properties:
+        version: { type: string }
+        emulator: { type: boolean }
+        device_open_mode: { type: boolean }
+        workstation_tokens: { type: integer, description: Рабочих мест с выданным токеном }
+        control_open_mode: { type: boolean }
+        equipment_types:
+          type: array
+          items: { $ref: "#/components/schemas/EquipmentType" }
+        default_timeout_ms: { type: integer }
+        journal: { $ref: "#/components/schemas/JournalStats" }
+        journal_max_file_bytes: { type: integer }
+        journal_max_files: { type: integer }
+
+    DeviceInfo:
+      type: object
+      properties:
+        device_id: { type: string }
+        type: { type: string, examples: [kkt] }
+        equipment_type: { type: string, examples: [KKT] }
+        workstation_id: { type: string }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        commands: { type: integer }
+        active_sessions: { type: integer }
+        event_listeners: { type: integer, description: Компоненты, слушающие события устройства }
+        last_error:
+          type: object
+          description: Последняя ошибка устройства (то, что сейчас вернёт GetLastError); нет — ошибок нет
+          properties:
+            code: { type: integer }
+            text: { type: string }
+        state: { type: object, additionalProperties: true }
+        instance_id: { type: string }
+        instance_name: { type: string }
+        infobase: { type: string }
+        keyed_by: { type: string, enum: [instance, workstation], description: "workstation — экземпляр не настроен (нет InstanceID)" }
+        copy: { type: boolean }
+        alias: { type: string, description: Подпись администратора }
+        note: { type: string }
+        settings: { type: object, additionalProperties: true, description: Сохранённые настройки (ключи схемы с setting=true) }
+        online: { type: boolean, description: Есть сессия, активная за последние 5 минут }
+        output: { $ref: "#/components/schemas/Output" }
+
+    Output:
+      type: object
+      description: Показ и печать документов устройства на кассе — выполняет трей (docs/protocol.md §2.3); нет у устройств, которые не печатают
+      properties:
+        screen: { type: boolean, description: Показывать на экране кассы }
+        printer: { type: boolean, description: Печатать на принтер Windows }
+        printer_name: { type: string, description: Пусто — принтер по умолчанию }
+        kinds: { type: array, items: { type: string, examples: [checks] }, description: Группы документов для печати (TypeInfo.output_kinds) }
+
+    Meta:
+      type: object
+      description: Подпись и заметка; отсутствующее поле не меняется
+      properties:
+        alias: { type: string, maxLength: 512 }
+        note: { type: string, maxLength: 512 }
+        output: { $ref: "#/components/schemas/Output" }
+
+    WorkstationInfo:
+      type: object
+      properties:
+        workstation_id: { type: string }
+        alias: { type: string }
+        note: { type: string }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        infobases: { type: array, items: { type: string } }
+        devices: { type: array, items: { type: string } }
+        sessions: { type: integer }
+        printers: { type: array, items: { type: string }, description: Принтеры Windows — сообщает трей }
+        default_printer: { type: string }
+        token: { $ref: "#/components/schemas/TokenInfo" }
+
+    TokenInfo:
+      type: object
+      description: Выданный токен рабочего места; сам токен не хранится и повторно не показывается
+      properties:
+        issued_at: { type: string, format: date-time }
+        hint: { type: string, description: Последние 4 символа токена }
+
+    IssuedToken:
+      type: object
+      required: [workstation_id, token, issued_at, hint]
+      properties:
+        workstation_id: { type: string }
+        token: { type: string, description: Показывается один раз, examples: [emk_ws_3f9a…] }
+        issued_at: { type: string, format: date-time }
+        hint: { type: string }
+
+    StateField:
+      type: object
+      description: Ключ PUT …/state в виде поля формы (docs/protocol.md §2.3)
+      properties:
+        key: { type: string }
+        title: { type: string }
+        kind: { type: string, enum: [bool, number, int, enum, string, json] }
+        options:
+          type: array
+          items: { type: object, properties: { value: { type: string }, title: { type: string } } }
+        min: { type: number }
+        max: { type: number }
+        hint: { type: string }
+        path: { type: string, description: "Где значение в state (faults.paper); «-» — значения нет" }
+        setting: { type: boolean, description: Настройка — сохраняется и задаётся классу по умолчанию }
+
+    TypeInfo:
+      allOf:
+        - $ref: "#/components/schemas/EquipmentType"
+        - type: object
+          properties:
+            schema: { type: array, items: { $ref: "#/components/schemas/StateField" } }
+            output_kinds:
+              type: array
+              description: Группы документов для печати; пусто — класс ничего не печатает
+              items:
+                type: object
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  kinds: { type: array, items: { type: string } }
+            defaults: { type: object, additionalProperties: true }
+            devices: { type: integer }
+
+    ScenarioRule:
+      type: object
+      required: [name, action]
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string }
+        enabled: { type: boolean }
+        limit: { type: integer, minimum: 0, description: Не больше N срабатываний; 0 — без ограничения }
+        seen: { type: integer, readOnly: true, description: Подходящих вызовов }
+        fired: { type: integer, readOnly: true, description: Срабатываний }
+        match:
+          type: object
+          properties:
+            device: { type: string }
+            type: { type: string, description: Класс (kkt, acquiring…) }
+            workstation: { type: string }
+            method: { type: string, description: Несколько — через запятую }
+            param:
+              type: object
+              properties:
+                index: { type: integer }
+                equals: { type: string }
+                contains: { type: string }
+            nth_call: { type: integer }
+            every: { type: integer }
+            probability: { type: number, minimum: 0, maximum: 1 }
+        action:
+          type: object
+          required: [type]
+          properties:
+            type: { type: string, enum: [error, delay, drop, late, set_state, emit_event] }
+            error_code: { type: integer }
+            error_text: { type: string }
+            delay_ms: { type: integer }
+            state: { type: object, additionalProperties: true }
+            event: { $ref: "#/components/schemas/DeviceEvent" }
+    SessionInfo:
+      type: object
+      properties:
+        session_id: { type: string }
+        device_id: { type: string }
+        workstation_id: { type: string }
+        equipment_type: { type: string }
+        driver_version: { type: string }
+        interface_revision: { type: integer }
+        created_at: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+
+    PrintedDocument:
+      type: object
+      properties:
+        seq: { type: integer, description: Порядковый номер на ленте }
+        kind:
+          type: string
+          examples: [check]
+          description: check, correction, copy, open_shift, close_shift, settlements, fn_report, x_report, text, cash_in, cash_out, slip, settlement, label
+        number: { type: integer, description: "Номер ФД, если документ фискальный" }
+        time: { type: string, format: date-time }
+        electronic: { type: boolean, description: Только в электронном виде (не печатался) }
+        print_error: { type: boolean, description: Сбой печати бумажной формы }
+        lines: { type: array, items: { type: string } }
+        layout: { $ref: "#/components/schemas/LabelLayout" }
+        qr:
+          type: object
+          description: QR-код под текстом (чек ФНС) — данные и готовая матрица, рисуется как есть
+          properties:
+            data: { type: string, examples: ["t=20261009T1913&s=179.80&fn=9999095641758087&i=3&fp=2930733135&n=1"] }
+            size: { type: integer, description: Сторона в модулях, без поля }
+            rows: { type: array, items: { type: string }, description: "Строки «1010…»: 1 — тёмный модуль" }
+
+    LabelLayout:
+      type: object
+      description: Разметка пакета этикеток принтера этикеток для просмотра (docs/models/printers.md). Координаты — мм.
+      properties:
+        width_mm: { type: number }
+        height_mm: { type: number }
+        total: { type: integer, description: Этикеток в пакете }
+        fields:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [text, barcode, image] }
+              name: { type: string }
+              left: { type: number }
+              top: { type: number }
+              width: { type: number }
+              height: { type: number }
+              orientation: { type: integer, enum: [0, 90, 180, 270] }
+              font_size: { type: number, description: Кегль }
+              font_style: { type: string, examples: ["Bold Italic"] }
+              align: { type: string }
+              valign: { type: string }
+              multiline: { type: boolean }
+              border: { type: string, examples: ["Left Top Right Bottom"] }
+              barcode_type: { type: string }
+              hri: { type: boolean, description: Подпись под штрихкодом }
+        labels:
+          type: array
+          description: Первые 20 этикеток пакета
+          items:
+            type: object
+            properties:
+              quantity: { type: integer }
+              values: { type: object, additionalProperties: { type: string }, description: "По имени поля; картинка — Base64 (до 64 КБ)" }
+
+    JournalStats:
+      type: object
+      properties:
+        last_seq: { type: integer }
+        files: { type: integer }
+        current_bytes: { type: integer }
+        subscribers: { type: integer }
+
+    JournalEntry:
+      type: object
+      required: [seq, ts, direction]
+      properties:
+        seq: { type: integer, description: "Монотонный номер, переживает перезапуск" }
+        ts: { type: string, format: date-time }
+        correlation_id: { type: string, description: request_id команды }
+        session_id: { type: string }
+        workstation_id: { type: string }
+        device_id: { type: string }
+        direction: { type: string, enum: [in, out, event, system] }
+        method:
+          type: string
+          description: Метод БПО либо служебная запись (session.open, session.expired, control.reset, control.set_state, download, device.print — напечатанный документ, payload = PrintedDocument и output {screen, print, printer} — решение сервера для трея; device.reprint — «напечатать ещё раз» из карточки; device.prompt и device.prompt_done — экран устройства ждёт человека и дождался, docs/protocol.md §2.0)
+        payload: { description: "in — {request_id, params, client_ts}; out — CommandResponse" }
+        latency_ms: { type: integer }
+        applied_rules: { type: array, items: { type: string } }
+        replay: { type: boolean, description: Повтор с тем же request_id — отдан сохранённый ответ }
+
+    JournalPage:
+      type: object
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/JournalEntry" }
+        last_seq: { type: integer }
+        has_more: { type: boolean, description: Есть более ранние записи (листать через before_seq) }

@@ -1,0 +1,57 @@
+name: Ошибка
+description: Эмулкон ведёт себя не так, как настоящее оборудование или как описано в документации
+labels: [ошибка]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо! Чем точнее шаги — тем быстрее исправим. Не прикладывайте реальные номера карт, токены и персональные данные.
+  - type: input
+    id: version
+    attributes:
+      label: Версия Эмулкона
+      description: «Эмулкон → О программе», страница загрузок или имя установщика
+      placeholder: 0.8.0
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Где ошибка
+      options:
+        - драйвер в 1С
+        - модель устройства (сервер)
+        - сценарии сбоев
+        - веб-интерфейс
+        - трей
+        - консоль MMC
+        - установщик
+        - другое
+    validations:
+      required: true
+  - type: input
+    id: config
+    attributes:
+      label: Конфигурация 1С, версия БПО и платформы
+      placeholder: Розница 3.0.x, БПО 3.3.x, платформа 8.3.27
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали и что получили
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: Журнал
+      description: Записи журнала Эмулкона (консоль: «Журнал → Выгрузить журнал…», веб: вкладка «Журнал»)
+      render: json

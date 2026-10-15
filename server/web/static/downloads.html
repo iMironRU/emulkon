@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Эмулкон — загрузки</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23c2410c'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>Э</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="dl-page">
+  <header class="top">
+    <div class="brand">
+      <span class="logo">Э</span>
+      <div>
+        <div class="title">Эмулкон <span class="emu-badge">ЭМУЛЯТОР</span></div>
+        <div class="subtitle">виртуальное оборудование для 1С:БПО · <span id="version">…</span></div>
+      </div>
+    </div>
+    <nav class="tabs">
+      <a class="tab" href="/#devices">Устройства</a>
+      <a class="tab" href="/#sessions">Рабочие места</a>
+      <a class="tab" href="/#journal">Журнал</a>
+      <span class="tab active">Загрузки</span>
+    </nav>
+  </header>
+
+  <main class="dl-main">
+    <div id="dl-error" class="warning" hidden></div>
+    <div id="dl-unpublished" class="warning" hidden>
+      Файлы на этом сервере не опубликованы. Соберите дистрибутив (<code>build.ps1</code> в корне
+      репозитория) или укажите каталог: <code>-downloads</code> / <code>EMULKON_DOWNLOADS_DIR</code>.
+    </div>
+
+    <section class="dl-section dl-driver">
+      <div class="view-head"><h2>Драйвер для 1С</h2><span class="muted" id="revision"></span></div>
+      <div id="dl-general" class="dl-file"></div>
+      <p class="dl-note">Общий архив — <b>все типы сразу</b>: «Загрузить новый драйвер из файла» создаёт в справочнике
+        «Драйверы оборудования» по записи на каждый тип из архива. Нужен один тип — скачайте архив из его карточки
+        ниже. Типы, которых не было в загруженной раньше версии, появляются только после новой загрузки архива:
+        «Обновить драйвер» в карточке обновляет компоненту, но новых записей не создаёт.
+        Сама компонента <b>обновляется сама</b>: при подключении узнаёт у сервера о новой версии, скачивает её и
+        переходит на неё после перезапуска 1С. Проверить вручную — кнопка <b>«Проверить обновление драйвера»</b>
+        в форме настройки экземпляра.</p>
+    </section>
+
+    <section class="dl-section">
+      <div class="view-head"><h2>Что поддерживается</h2></div>
+      <div id="dl-supported" class="dl-cards"></div>
+    </section>
+    <section class="dl-section">
+      <div class="view-head"><h2>Остальное оборудование</h2><span class="muted">эмулируется заглушкой</span></div>
+      <div class="table-wrap">
+        <table class="grid dl-support">
+          <thead><tr><th>Тип оборудования</th><th>Эмуляция</th><th>Драйвер для БПО</th></tr></thead>
+          <tbody id="support-body"></tbody>
+        </table>
+      </div>
+      <p class="muted dl-legend">Заглушка — любой метод отвечает успехом, вызовы видны в журнале. Настоящие модели
+        появляются по этапам (ARCHITECTURE §14).</p>
+    </section>
+
+    <section class="dl-section">
+      <div class="view-head"><h2>Требования</h2></div>
+      <ul class="dl-req">
+        <li>1С:Предприятие 8.3 на Windows (тонкий, толстый клиент), x64 или x86.</li>
+        <li>БПО с требованиями к драйверам 4.8 (ревизия интерфейса 4008) — например, БПО 3.3.</li>
+        <li>Сервер — Windows (установщик) или Docker. Linux-версия драйвера — позже.</li>
+      </ul>
+    </section>
+
+    <section class="dl-section dl-setup">
+      <div class="view-head"><h2>Установить Эмулкон на другой компьютер</h2></div>
+      <p class="muted" id="setup-here"></p>
+      <p class="muted">Сервер эмуляции и трей: чеки и этикетки, экраны терминала и весов. Без прав администратора, удаляется через
+        «Установленные приложения», перед установкой и после неё проверяет, что всё работает.</p>
+      <div id="setup-file" class="dl-file"></div>
+    </section>
+
+    <details class="dl-section raw">
+      <summary>Файлы для самообновления драйвера</summary>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr><th>Файл</th><th>Архитектура</th><th>Версия</th><th class="num">Размер</th><th>SHA-256</th></tr></thead>
+          <tbody id="dll-body"></tbody>
+        </table>
+      </div>
+    </details>
+  </main>
+
+  <footer class="foot">Эмулкон · разработчик <a href="https://imiron.ru" target="_blank" rel="noopener">imiron.ru</a></footer>
+  <script src="/downloads.js"></script>
+</body>
+</html>

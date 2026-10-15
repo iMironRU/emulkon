@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Эмулкон</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23c2410c'/><text x='16' y='22' font-size='17' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>Э</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo">Э</span>
+      <div>
+        <div class="title">Эмулкон <span class="emu-badge">ЭМУЛЯТОР</span></div>
+        <div class="subtitle">виртуальное оборудование для 1С:БПО · <span id="version">…</span></div>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="devices" role="tab">Устройства</button>
+      <button class="tab" data-view="sessions" role="tab">Рабочие места</button>
+      <button class="tab" data-view="classes" role="tab">Классы</button>
+      <button class="tab" data-view="scenarios" role="tab">Сценарии</button>
+      <button class="tab" data-view="journal" role="tab">Журнал</button>
+      <a class="tab" href="/downloads" title="Драйвер для 1С, установщик, что поддерживается">Загрузки</a>
+    </nav>
+    <div class="top-actions">
+      <span id="live" class="live off" title="Поток журнала">● поток</span>
+      <div class="bell-wrap">
+        <button id="bell" class="bell" type="button" title="Уведомления" aria-label="Уведомления">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
+          <span id="bell-count" class="bell-count" hidden></span>
+        </button>
+        <div id="notices" class="notices" hidden>
+          <div class="notices-head">Уведомления</div>
+          <div id="notices-list"></div>
+        </div>
+      </div>
+      <button id="reset" class="btn danger" title="Сбросить состояние всех устройств (перед тестом)">Сбросить состояние</button>
+    </div>
+  </header>
+
+  <div id="warnings" class="warnings"></div>
+
+  <section id="token-panel" class="token-panel" hidden>
+    <form id="token-form">
+      <label for="token-input">Нужен токен Control API (EMULKON_CONTROL_TOKEN)</label>
+      <div class="row">
+        <input id="token-input" type="password" autocomplete="off" placeholder="токен">
+        <button class="btn primary" type="submit">Войти</button>
+      </div>
+    </form>
+  </section>
+
+  <main>
+    <section id="view-devices" class="view">
+      <div class="view-head">
+        <h2>Устройства</h2>
+        <span class="muted" id="devices-meta"></span>
+        <div class="view-tools">
+          <select id="dev-ws" title="Рабочее место"><option value="">все рабочие места</option></select>
+          <select id="dev-base" title="База 1С"><option value="">все базы</option></select>
+          <input id="dev-q" type="search" placeholder="поиск: имя, база, идентификатор" autocomplete="off">
+        </div>
+      </div>
+      <div class="split">
+        <nav id="class-list" class="class-list" aria-label="Классы устройств"></nav>
+        <div class="table-wrap">
+          <table class="grid">
+            <thead><tr>
+              <th>Устройство</th><th>База и экземпляр в 1С</th><th>Рабочее место</th><th>Связь</th>
+              <th class="num">Команд</th><th>Состояние</th>
+            </tr></thead>
+            <tbody id="devices-body"></tbody>
+          </table>
+          <div id="devices-empty" class="empty" hidden>
+            Устройств нет. Они появляются сами при первом подключении из 1С: подключите драйвер
+            «ЭМУЛЯТОР Эмулкон» в БПО — устройство появится здесь.
+          </div>
+        </div>
+      </div>
+
+      <section id="device-detail" class="detail" hidden>
+        <div class="detail-head">
+          <h2 id="detail-title"></h2>
+          <span class="muted" id="detail-sub"></span>
+          <button class="btn" id="detail-close" title="Вернуться к списку устройств (Esc)">← К списку</button>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-col">
+            <h3>Экземпляр</h3>
+            <dl id="detail-meta" class="summary"></dl>
+            <form id="meta-form" class="meta-form" autocomplete="off">
+              <label>Подпись <input name="alias" maxlength="200" placeholder="например, Касса 1, отдел бытовой химии"></label>
+              <label>Заметка <input name="note" maxlength="500" placeholder="для себя"></label>
+              <button class="btn" type="submit">Сохранить</button>
+              <span class="muted" id="meta-saved"></span>
+            </form>
+            <h3>Настройки <span class="muted">сохраняются и переживают перезапуск сервера</span></h3>
+            <div id="detail-settings" class="settings-form"></div>
+            <div id="output-box" hidden>
+              <h3>Показ и печать на кассе <span class="muted">выполняет трей рабочего места</span></h3>
+              <div id="detail-output" class="settings-form"></div>
+              <div class="actions">
+                <button class="btn" type="button" id="reprint" title="Последний документ ленты — на принтер рабочего места">Напечатать последний документ</button>
+                <span class="muted" id="reprint-status"></span>
+              </div>
+            </div>
+            <div class="actions settings-actions">
+              <button class="btn" type="button" id="settings-reset" title="Модель — в исходное состояние, затем настройки класса">Вернуть настройки класса</button>
+              <button class="btn danger" type="button" id="device-delete" title="Удалить устройство из реестра">Удалить устройство</button>
+            </div>
+            <div id="detail-screen" class="pos-screen" hidden></div>
+            <div id="detail-summary" class="summary"></div>
+            <h3>Управление эмуляцией <span class="muted">состояние и сбои — не сохраняются</span></h3>
+            <div id="detail-actions" class="actions"></div>
+            <div id="detail-error" class="warning" hidden></div>
+            <details class="raw">
+              <summary>Состояние модели (JSON)</summary>
+              <pre id="detail-raw"></pre>
+            </details>
+          </div>
+          <div class="detail-col">
+            <div id="detail-ops" hidden>
+              <h3>Операции дня <span class="muted" id="ops-meta"></span></h3>
+              <div class="table-wrap ops-wrap"><table class="grid ops">
+                <thead><tr><th>Операция</th><th class="num">Сумма</th><th>Карта</th><th>RRN</th><th>Итог</th><th>Время</th></tr></thead>
+                <tbody id="ops-body"></tbody>
+              </table></div>
+            </div>
+            <div id="detail-goods" hidden>
+              <h3>Товары в весах <span class="muted" id="goods-meta"></span></h3>
+              <div class="goods-bar">
+                <label>Вес для этикетки, кг <input id="goods-weight" class="pos-input" type="text" inputmode="decimal" autocomplete="off" value="0.500"></label>
+                <span class="muted">штучному товару — вес единицы из 1С</span>
+              </div>
+              <div class="table-wrap goods-wrap"><table class="grid goods">
+                <thead><tr><th class="num">PLU</th><th>Товар</th><th class="num">Цена за кг</th><th></th></tr></thead>
+                <tbody id="goods-body"></tbody>
+              </table></div>
+              <div id="goods-image" class="goods-image" hidden></div>
+            </div>
+            <h3 id="tape-head">Лента печати <span class="muted" id="tape-meta"></span></h3>
+            <div id="detail-tape" class="tape"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="view-sessions" class="view" hidden>
+      <div class="view-head">
+        <h2>Рабочие места</h2>
+        <span class="muted" id="ws-meta"></span>
+        <form id="ws-add" class="ws-add" title="Завести рабочее место заранее и выдать ему токен">
+          <input id="ws-add-id" class="inline-input mono" placeholder="KASSA-3" maxlength="128" required>
+          <button class="btn" type="submit">Завести и выдать токен</button>
+        </form>
+      </div>
+      <div id="ws-token" class="token-box" hidden>
+        <div><b>Токен рабочего места <span id="ws-token-ws" class="mono"></span></b> — показывается один раз.
+          Впишите его в 1С: «Подключаемое оборудование» → экземпляр → «Настроить…» → «Токен устройства».
+          Поле «Рабочее место» можно оставить пустым — сервер узнает место по токену.</div>
+        <div class="token-row">
+          <input id="ws-token-value" class="mono" readonly>
+          <button class="btn" type="button" id="ws-token-copy">Скопировать</button>
+          <button class="btn" type="button" id="ws-token-close">Готово</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr>
+            <th>Рабочее место</th><th>Подпись и заметка</th><th>Токен</th><th>Базы 1С</th><th>Устройства</th>
+            <th class="num">Сессий</th><th>Впервые</th><th>Активность</th>
+          </tr></thead>
+          <tbody id="ws-body"></tbody>
+        </table>
+        <div id="ws-empty" class="empty" hidden>Рабочих мест нет: они появляются при первом подключении из 1С или их заводят здесь заранее.</div>
+      </div>
+      <div class="view-head sub-head">
+        <h2>Сессии</h2>
+        <span class="muted" id="sessions-meta"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr>
+            <th>Рабочее место</th><th>Устройство</th><th>Сессия</th><th>Драйвер</th>
+            <th>Ревизия требований</th><th>Открыта</th><th>Активность</th>
+          </tr></thead>
+          <tbody id="sessions-body"></tbody>
+        </table>
+        <div id="sessions-empty" class="empty" hidden>Активных сессий нет.</div>
+      </div>
+    </section>
+
+    <section id="view-classes" class="view" hidden>
+      <div class="view-head">
+        <h2>Классы устройств</h2>
+        <span class="muted">настройки по умолчанию: их получает каждое новое устройство класса; на существующие не влияют</span>
+      </div>
+      <div id="classes-body" class="classes"></div>
+    </section>
+
+    <section id="view-scenarios" class="view" hidden>
+      <div class="view-head">
+        <h2>Сценарии сбоев</h2>
+        <span class="muted">правило «условие → действие» срабатывает на командах из 1С; сработавшие видны в журнале</span>
+        <div class="view-tools">
+          <select id="scn-preset" title="Заготовка"><option value="">заготовка…</option></select>
+          <button class="btn primary" type="button" id="scn-new">Новое правило</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr><th>Вкл.</th><th>Правило</th><th>Условие</th><th>Действие</th><th class="num">Сработало</th><th></th></tr></thead>
+          <tbody id="scn-body"></tbody>
+        </table>
+        <div id="scn-empty" class="empty" hidden>Правил нет. Начните с заготовки: «Нет бумаги на следующем чеке», «Отказ банка на каждой второй оплате»…</div>
+      </div>
+      <form id="scn-form" class="scn-form" hidden autocomplete="off">
+        <h3 id="scn-form-title">Правило</h3>
+        <div class="settings-form">
+          <div class="field"><label>Название</label><div class="field-control"><input name="rname" required maxlength="200"></div></div>
+          <div class="field"><label>Включено</label><div class="field-control"><input name="enabled" type="checkbox" class="check"></div></div>
+          <div class="field"><label>Устройство<span class="hint">пусто — любое</span></label><div class="field-control"><select name="device"></select></div></div>
+          <div class="field"><label>Класс<span class="hint">пусто — любой</span></label><div class="field-control"><select name="type"></select></div></div>
+          <div class="field"><label>Метод драйвера<span class="hint">несколько — через запятую: Pay, ProcessCheck…</span></label><div class="field-control"><input name="rmethod" list="scn-methods"></div></div>
+          <div class="field"><label>Параметр содержит<span class="hint">номер параметра и подстрока, например 1 и Amount="999</span></label><div class="field-control"><input name="param_index" type="number" min="0" max="64" placeholder="№" class="narrow"><input name="param_contains" placeholder="подстрока"></div></div>
+          <div class="field"><label>Когда</label><div class="field-control"><select name="when"><option value="always">каждый подходящий вызов</option><option value="nth">только на N-м вызове</option><option value="every">на каждом N-м</option></select><input name="n" type="number" min="1" class="narrow" placeholder="N"></div></div>
+          <div class="field"><label>Вероятность, %<span class="hint">пусто — всегда</span></label><div class="field-control"><input name="probability" type="number" min="1" max="100"></div></div>
+          <div class="field"><label>Не больше раз<span class="hint">пусто — без ограничения</span></label><div class="field-control"><input name="limit" type="number" min="1"></div></div>
+          <div class="field"><label>Действие</label><div class="field-control"><select name="atype">
+            <option value="error">ответить ошибкой устройства</option>
+            <option value="delay">задержать ответ</option>
+            <option value="late">ответить после таймаута драйвера</option>
+            <option value="drop">выполнить и оборвать связь (ответ потерян)</option>
+            <option value="set_state">изменить состояние устройства</option>
+            <option value="emit_event">отправить событие в 1С</option>
+          </select></div></div>
+          <div class="field act act-error"><label>Код и текст ошибки<span class="hint">коды — docs/models/</span></label><div class="field-control"><input name="error_code" type="number" min="1" class="narrow"><input name="error_text"></div></div>
+          <div class="field act act-error act-delay act-late act-drop act-set_state act-emit_event"><label>Задержка, мс</label><div class="field-control"><input name="delay_ms" type="number" min="0" max="600000"></div></div>
+          <div class="field act act-set_state"><label>Состояние (JSON)<span class="hint">как в PUT …/state: {"paper": false}</span></label><div class="field-control"><textarea name="state" rows="2" class="mono"></textarea></div></div>
+          <div class="field act act-emit_event"><label>Событие<span class="hint">имя из требований и данные</span></label><div class="field-control"><input name="event_name" placeholder="Barcode" class="narrow"><input name="event_data" placeholder="данные"></div></div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="submit">Сохранить</button>
+          <button class="btn" type="button" id="scn-cancel">Отмена</button>
+          <span class="muted" id="scn-status"></span>
+        </div>
+      </form>
+      <datalist id="scn-methods">
+        <option value="ProcessCheck"><option value="OpenShift"><option value="CloseShift"><option value="PrintTextDocument">
+        <option value="Pay"><option value="ReturnPayment"><option value="CancelPayment"><option value="Settlement">
+        <option value="GetWeight"><option value="ConnectEquipment"><option value="PrintLabels"><option value="UploadGoods">
+      </datalist>
+    </section>
+
+    <section id="view-journal" class="view" hidden>
+      <div class="view-head">
+        <h2>Журнал обменов</h2>
+        <span class="muted" id="journal-meta"></span>
+      </div>
+      <form id="filters" class="filters" autocomplete="off">
+        <select name="device_id" id="f-device" title="Устройство"><option value="">все устройства</option></select>
+        <select name="workstation_id" id="f-workstation" title="Рабочее место"><option value="">все рабочие места</option></select>
+        <select name="direction">
+          <option value="">все направления</option>
+          <option value="in">in — команда</option>
+          <option value="out">out — ответ</option>
+          <option value="event">event — событие</option>
+          <option value="system">system — служебное</option>
+        </select>
+        <input name="method" placeholder="метод">
+        <input name="q" placeholder="поиск по тексту" class="grow">
+        <button type="button" id="pause" class="btn">Пауза</button>
+        <button type="button" id="export" class="btn">Выгрузить JSONL</button>
+      </form>
+      <div class="table-wrap journal-wrap">
+        <table class="grid journal">
+          <thead><tr>
+            <th class="num">#</th><th>Время</th><th>Напр.</th><th>Рабочее место</th><th>Устройство</th>
+            <th>Метод</th><th>Корреляция</th><th class="num">мс</th><th>Итог</th>
+          </tr></thead>
+          <tbody id="journal-body"></tbody>
+        </table>
+        <div id="journal-empty" class="empty" hidden>Записей нет.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">Эмулкон · разработчик <a href="https://imiron.ru" target="_blank" rel="noopener">imiron.ru</a></footer>
+  <script src="app.js"></script>
+</body>
+</html>

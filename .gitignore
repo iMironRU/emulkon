@@ -1,0 +1,36 @@
+# сборка и данные сервера
+/server/bin/
+/server/data/
+*.exe
+*.test
+*.out
+
+# компонента
+/component/build/
+/component/out/
+/component/dist/
+/tray/dist/
+/console/dist/
+/dist/
+
+# прогоны в 1С: собранная обработка, отчёты, снимки окон
+/tests/1c/build/
+
+# логи MCP-сервера справки 1С (пишет в cwd)
+mcp-server.log*
+
+# локальные копии сторонних документов (ИТС и т.п.) — в git только выжимки в docs/
+/.inbox/
+
+# локальные настройки
+.env
+.claude/settings.local.json
+.claude/launch.json
+
+# внутреннее — в публичный репозиторий не входит
+/CLAUDE.md
+/docs/market/
+/docs/cloud.md
+
+# SDK Native API 1С (распространяет 1С) — локально или из секрета CI
+/third_party/onec-sdk/

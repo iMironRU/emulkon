@@ -1,0 +1,12 @@
+* text=auto
+
+*.ps1 text eol=crlf
+tests/1c/src/** text eol=crlf
+
+*.png binary
+*.ico binary
+*.zip binary
+
+# Языки на странице репозитория
+*.bsl linguist-language=1C-Enterprise
+docs/** linguist-documentation
