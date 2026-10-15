@@ -19,10 +19,16 @@ jobs:
     steps:
       - name: Инструменты сборки
         run: |
-          echo "deb http://deb.debian.org/debian bullseye-backports main" > /etc/apt/sources.list.d/backports.list
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends g++ ninja-build unzip curl ca-certificates git binutils > /dev/null
-          apt-get install -y -qq --no-install-recommends -t bullseye-backports cmake > /dev/null
+          # CMake 3.20+ — официальная сборка Kitware с проверкой SHA-256 (в Debian 11 — 3.18).
+          v=3.30.5
+          cd /tmp
+          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-linux-x86_64.tar.gz"
+          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-SHA-256.txt"
+          grep "cmake-$v-linux-x86_64.tar.gz" "cmake-$v-SHA-256.txt" | sha256sum -c -
+          tar -xzf "cmake-$v-linux-x86_64.tar.gz" -C /opt
+          ln -sf "/opt/cmake-$v-linux-x86_64/bin/"* /usr/local/bin/
           cmake --version | head -n 1
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
