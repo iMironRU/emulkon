@@ -1,13 +1,18 @@
 // Экспортируемые функции внешней компоненты (SDK Native API, ComponentBase.h).
 //
-// Самообновление (update.h): если в кэше пользователя есть DLL драйвера новее этой,
-// все экспорты переадресуются в неё — объект создаёт и уничтожает новая версия.
-// Выбор делается один раз за процесс при первом вызове экспорта.
+// Самообновление (update.h): если в кэше пользователя есть драйвер новее этого, все экспорты
+// переадресуются в него — объект создаёт и уничтожает новая версия. Выбор делается один раз за
+// процесс при первом вызове экспорта. Windows — LoadLibrary, Linux — dlopen.
 #include <new>
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "driver.h"
+#include "text.h"
 #include "update.h"
 
 namespace {
@@ -15,8 +20,46 @@ namespace {
 // Возможности платформы — пока не используются (уведомления, диалоги).
 [[maybe_unused]] AppCapabilities g_capabilities = eAppCapabilitiesInvalid;
 
+#ifdef _WIN32
+using Module = HMODULE;
+
+Module selfModule() {
+    HMODULE h = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&selfModule), &h);
+    return h;
+}
+
+Module openModule(const std::string& path) {
+    std::u16string w = emu::utf8to16(path);
+    return LoadLibraryExW(reinterpret_cast<LPCWSTR>(w.c_str()), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+
+void closeModule(Module m) { FreeLibrary(m); }
+
+void* symbol(Module m, const char* name) { return reinterpret_cast<void*>(GetProcAddress(m, name)); }
+#else
+using Module = void*;
+
+// selfModule — описатель этой библиотеки (RTLD_NOLOAD: не загружать, только найти); он же у
+// dlopen() того же файла, поэтому «каталог кэша назван не своей версией» распознаётся сравнением.
+Module selfModule() {
+    Dl_info info{};
+    if (!dladdr(reinterpret_cast<void*>(&selfModule), &info) || !info.dli_fname) return nullptr;
+    Module m = dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD);
+    if (m) dlclose(m);  // счётчик ссылок не меняем
+    return m;
+}
+
+Module openModule(const std::string& path) { return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL); }
+
+void closeModule(Module m) { dlclose(m); }
+
+void* symbol(Module m, const char* name) { return dlsym(m, name); }
+#endif
+
 struct Target {
-    HMODULE module = nullptr;  // nullptr — работает эта DLL
+    Module module = nullptr;  // nullptr — работает эта библиотека
     GetClassObjectPtr getClassObject = nullptr;
     DestroyObjectPtr destroyObject = nullptr;
     GetClassNamesPtr getClassNames = nullptr;
@@ -24,28 +67,20 @@ struct Target {
     GetAttachTypePtr getAttachType = nullptr;
 };
 
-HMODULE selfModule() {
-    HMODULE h = nullptr;
-    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                       reinterpret_cast<LPCWSTR>(&selfModule), &h);
-    return h;
-}
-
 template <typename T>
-T proc(HMODULE m, const char* name) {
-    return reinterpret_cast<T>(reinterpret_cast<void*>(GetProcAddress(m, name)));
+T proc(Module m, const char* name) {
+    return reinterpret_cast<T>(symbol(m, name));
 }
 
-// resolve ищет в кэше самую новую DLL, которая загружается и экспортирует всё нужное.
-// Битая или чужая DLL пропускается — тогда работает следующая или эта.
+// resolve ищет в кэше самый новый драйвер, который загружается и экспортирует всё нужное.
+// Битый или чужой файл пропускается — тогда работает следующий или этот.
 Target resolve() {
     if (emu::redirectDisabled()) return {};
     for (const std::string& version : emu::newerVersions(emu::cachedVersions(), EMULKON_VERSION)) {
-        std::wstring path = emu::cachedDllPath(version);
-        HMODULE m = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        Module m = openModule(emu::cachedDllPath(version));
         if (!m) continue;
         if (m == selfModule()) {  // каталог кэша назван не своей версией, а это мы и есть
-            FreeLibrary(m);
+            closeModule(m);
             return {};
         }
         Target t;
@@ -58,7 +93,7 @@ Target resolve() {
         if (t.getClassObject && t.destroyObject && t.getClassNames && t.setPlatformCapabilities && t.getAttachType) {
             return t;  // ссылку на модуль держим до конца процесса
         }
-        FreeLibrary(m);
+        closeModule(m);
     }
     return {};
 }

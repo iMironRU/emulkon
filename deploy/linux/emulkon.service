@@ -1,0 +1,33 @@
+# Служба сервера Эмулкон (systemd). Ставит пакет emulkon (.deb, .rpm) — deploy/linux/README.md.
+# Настройки — /etc/emulkon/emulkon.env, данные — /var/lib/emulkon, лог — journalctl -u emulkon.
+[Unit]
+Description=Эмулкон — эмулятор подключаемого оборудования 1С (ЭМУЛЯТОР)
+Documentation=https://imiron.ru/emulkon/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/emulkon/emulkon.env
+Environment=EMULKON_DATA_DIR=/var/lib/emulkon
+ExecStart=/usr/bin/emulkon
+Restart=on-failure
+RestartSec=5s
+
+# Свой пользователь на время работы, данные — только в /var/lib/emulkon.
+DynamicUser=yes
+StateDirectory=emulkon
+StateDirectoryMode=0750
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -183,9 +183,9 @@ data: {"event_id":"dlzhspvu1hs4.1","time":"…","name":"Barcode","data":"4600000
 
 | Файл | Что это |
 |---|---|
-| `EmulkonDriver_<версия>.zip` | пакет драйвера для БПО со всеми типами (INFO.XML, MANIFEST.XML, DLL x64 и x86) |
+| `EmulkonDriver_<версия>.zip` | пакет драйвера для БПО со всеми типами (INFO.XML, MANIFEST.XML, DLL Windows x64 и x86, `.so` Linux x64 — если собран) |
 | `EmulkonDriver_<версия>_<тип>.zip` | тот же пакет с одним типом в INFO.XML (`kkt`, `acquiring`, …): сервер собирает его из общего, на диске его нет |
-| `EmulkonDriver_<версия>_win64.dll`, `…_win32.dll` | DLL драйвера для самообновления |
+| `EmulkonDriver_<версия>_win64.dll`, `…_win32.dll`, `…_lin64.so` | драйвер для самообновления: Windows x64 и x86, Linux x64 |
 | `EmulkonSetup_<версия>.exe` | установщик Эмулкона для Windows |
 
 Посторонние файлы каталога не раздаются. Всё открыто **без токенов**: файлы не секретны,
@@ -196,15 +196,17 @@ data: {"event_id":"dlzhspvu1hs4.1","time":"…","name":"Barcode","data":"4600000
 | `GET /downloads` | страница «Поддержка и загрузки»: что поддерживается, скачивание, как установить в БПО |
 | `GET /downloads/{файл}` | файл; каждое скачивание — запись `download` в журнале (рабочее место — из `X-Emulkon-Workstation`) |
 | `GET /api/v1/downloads` | каталог: самые новые файлы каждого вида с размером и SHA-256, поддержка оборудования; у типа с драйвером — `package`, пакет под этот тип |
-| `GET /api/v1/driver/update?version=&arch=` | есть ли DLL новее для архитектуры `x86_64` или `i386` |
+| `GET /api/v1/driver/update?version=&arch=&os=` | есть ли драйвер новее для архитектуры `x86_64` или `i386` и ОС `windows` (по умолчанию) или `linux` |
 
 **Как обновляется драйвер.**
-1. Компонента открывает сессию с `driver_version` и `driver_arch`. Если в каталоге загрузок
-   есть DLL этой архитектуры новее, ответ содержит `driver_update`: `{version, url, size, sha256}`.
+1. Компонента открывает сессию с `driver_version`, `driver_arch` и `driver_os` (`windows`, `linux`; без него —
+   `windows`, как у драйверов до 0.9.0). Если в каталоге загрузок есть драйвер этой ОС и архитектуры новее,
+   ответ содержит `driver_update`: `{version, url, size, sha256}`.
    В журнале у `session.open` будет поле `driver_update`.
 2. Компонента скачивает DLL в фоне, если в настройке не выключено «Обновлять драйвер автоматически»
    (`AutoUpdate`). Операция 1С скачивания не ждёт. Размер и SHA-256 сверяются до того, как файл
-   получит рабочее имя: `%LOCALAPPDATA%\Emulkon\driver\<версия>\EmulkonDriver_win64.dll`.
+   получит рабочее имя: `%LOCALAPPDATA%\Emulkon\driver\<версия>\EmulkonDriver_win64.dll`; на Linux —
+   `$XDG_CACHE_HOME/emulkon/driver/<версия>/libEmulkonDriver_lin64.so` (по умолчанию `~/.cache/…`).
 3. При следующей загрузке компоненты (перезапуск 1С) её экспорты переадресуются в самую новую
    DLL из кэша. Переустанавливать драйвер в БПО не нужно. Битая DLL пропускается.
    `EMULKON_DRIVER_NO_UPDATE=1` в окружении 1С выключает переадресацию.

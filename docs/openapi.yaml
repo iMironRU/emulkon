@@ -104,6 +104,10 @@ paths:
       parameters:
         - { name: version, in: query, required: true, schema: { type: string, examples: [0.2.0] } }
         - { name: arch, in: query, required: true, schema: { type: string, enum: [x86_64, i386] } }
+        - name: os
+          in: query
+          description: ОС драйвера; без параметра — windows (драйверы до 0.9.0)
+          schema: { type: string, enum: [windows, linux], default: windows }
       responses:
         "200":
           description: Ответ
@@ -934,6 +938,11 @@ components:
           type: string
           enum: [x86_64, i386]
           description: Архитектура DLL драйвера — по ней сервер предлагает обновление (driver_update)
+        driver_os:
+          type: string
+          enum: [windows, linux]
+          default: windows
+          description: ОС драйвера — вместе с driver_arch выбирает файл обновления (_win64.dll или _lin64.so)
         interface_revision:
           type: integer
           examples: [4008]
@@ -975,6 +984,7 @@ components:
         url: { type: string, examples: [/downloads/EmulkonDriver_0.2.1_win64.dll] }
         version: { type: string }
         arch: { type: string, enum: [x86_64, i386] }
+        os: { type: string, enum: [windows, linux], description: Для DLL драйвера }
         size: { type: integer }
         sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
         modified: { type: string, format: date-time }

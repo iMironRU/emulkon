@@ -3,13 +3,15 @@
 #   .\build.ps1                       # x64 и x86, тесты без сервера, ZIP в component\dist
 #   .\build.ps1 -Arch x64             # только x64
 #   .\build.ps1 -Server http://127.0.0.1:8737   # плюс сценарий ККТ на живом сервере
+#   .\build.ps1 -LinuxDriver <libEmulkonDriver_lin64.so>   # плюс драйвер Linux в пакете (его собирает CI на Linux)
 #
 # Тулчейн — clang-cl (README, «Сборка»). Сохранять в UTF-8 with BOM.
 
 param(
     [ValidateSet("x64", "x86", "all")]
     [string]$Arch = "all",
-    [string]$Server = ""
+    [string]$Server = "",
+    [string]$LinuxDriver = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,7 +46,13 @@ foreach ($a in $archs) {
     $dlls += Get-ChildItem $bin -Filter "EmulkonDriver_win*.dll"
 }
 
-# --- пакет драйвера для БПО: INFO.XML + MANIFEST.XML + DLL ---
+# Драйвер Linux собирается на Linux (CI) и только упаковывается здесь вместе с DLL Windows.
+if ($LinuxDriver) {
+    if (-not (Test-Path -LiteralPath $LinuxDriver)) { throw "Нет драйвера Linux: $LinuxDriver" }
+    $dlls += Get-Item -LiteralPath $LinuxDriver
+}
+
+# --- пакет драйвера для БПО: INFO.XML + MANIFEST.XML + DLL Windows и .so Linux ---
 $version = (Get-Content -LiteralPath (Join-Path $src "..\VERSION") -TotalCount 1).Trim()
 $dist = Join-Path $src "dist"
 $stage = Join-Path $buildRoot "package"
@@ -62,10 +70,11 @@ $info = @"
 # имени файла (%APPDATA%\1C\1cv8\ExtCompT\registry.xml) и DLL с тем же именем повторно не ставит:
 # после «Обновить драйвер» в БПО касса работала бы со старой DLL (прогон в Рознице, 2026-10-09).
 $packaged = @{}
-foreach ($d in $dlls) { $packaged[$d.FullName] = $d.Name -replace '^EmulkonDriver_', "EmulkonDriver_$($version -replace '\.', '_')_" }
+foreach ($d in $dlls) { $packaged[$d.FullName] = $d.Name -replace '^(lib)?EmulkonDriver_', ('${1}EmulkonDriver_' + ($version -replace '\.', '_') + '_') }
 $components = foreach ($d in $dlls) {
-    $cpu = if ($d.Name -like "*win64*") { "x86_64" } else { "i386" }
-    "  <component os=`"Windows`" path=`"$($packaged[$d.FullName])`" type=`"native`" arch=`"$cpu`"/>"
+    $cpu = if ($d.Name -like "*64*") { "x86_64" } else { "i386" }
+    $os = if ($d.Name -like "*_lin*") { "Linux" } else { "Windows" }
+    "  <component os=`"$os`" path=`"$($packaged[$d.FullName])`" type=`"native`" arch=`"$cpu`"/>"
 }
 $manifest = @"
 <?xml version="1.0" encoding="UTF-8"?>

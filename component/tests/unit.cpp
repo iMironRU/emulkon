@@ -1,5 +1,6 @@
 // Модульные тесты ядра компоненты: JSON, текст, параметры подключения, таблица методов.
 #include <cstdio>
+#include <filesystem>
 #include <set>
 #include <string>
 
@@ -7,11 +8,20 @@
 #include "events.h"
 #include "json.h"
 #include "methods.h"
+#include "platform.h"
 #include "text.h"
 #include "update.h"
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <thread>
 #endif
 
 using namespace emu;
@@ -180,7 +190,6 @@ static void testUpdateLogic() {
     CHECK(std::string(driverArch()) == (sizeof(void*) == 8 ? "x86_64" : "i386"));
 }
 
-#ifdef _WIN32
 // FakeHttp — сервер обновлений в памяти: ответ /api/v1/driver/update и файл DLL.
 class FakeHttp : public HttpClient {
 public:
@@ -209,73 +218,192 @@ public:
     }
 };
 
-static void removeTree(const std::wstring& dir) {
-    WIN32_FIND_DATAW fd;
-    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            std::wstring name = fd.cFileName;
-            if (name == L"." || name == L"..") continue;
-            std::wstring path = dir + L"\\" + name;
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) removeTree(path);
-            else DeleteFileW(path.c_str());
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    }
-    RemoveDirectoryW(dir.c_str());
+static void removeTree(const std::string& dir) {
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::u8path(dir), ec);
 }
 
+// Кэш обновлений — на обеих ОС: файлы через платформенный слой (platform.h).
 static void testUpdateCache() {
-    wchar_t tmp[MAX_PATH];
-    GetTempPathW(MAX_PATH, tmp);
-    std::wstring root = std::wstring(tmp) + L"emulkon-unit-" + std::to_wstring(GetCurrentProcessId());
+    const std::string root = sys::tempDir() + sys::kSep + "emulkon-unit-" + std::to_string(sys::processId());
     removeTree(root);
-    SetEnvironmentVariableW(L"EMULKON_DRIVER_CACHE", root.c_str());
+    sys::setEnv("EMULKON_DRIVER_CACHE", root.c_str());
     CHECK(updateCacheRoot() == root);
     CHECK(cachedVersions().empty() && rememberedServer().empty());
 
     rememberServer("http://kassa-srv:8737");
     CHECK(rememberedServer() == "http://kassa-srv:8737");
 
-    // Старая версия в кэше — после установки новой её DLL удаляется.
-    std::wstring oldDir = root + L"\\0.0.1";
-    CreateDirectoryW(oldDir.c_str(), nullptr);
-    HANDLE f = CreateFileW(cachedDllPath("0.0.1").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
-    CHECK(f != INVALID_HANDLE_VALUE);
-    CloseHandle(f);
+    // Старая версия в кэше — после установки новой её файл удаляется.
+    const std::string oldDir = root + sys::kSep + "0.0.1";
+    CHECK(sys::ensureDir(oldDir));
+    CHECK(sys::writeFile(cachedDllPath("0.0.1"), "old"));
     CHECK(cachedVersions().size() == 1);
 
     FakeHttp http;
     std::string message;
     CHECK(checkForUpdate(http, "http://srv/", 1000, "WS", message) == UpdateCheck::UpToDate);
     CHECK(message.find("последняя версия") != std::string::npos && message.find("не опубликованы") != std::string::npos);
+    CHECK(http.gets.size() == 1 && http.gets[0].find(std::string("&os=") + driverOS()) != std::string::npos);
 
+#ifdef _WIN32
     http.dll = std::string("MZ") + std::string(300, '\x90');
+    const std::string file = "_win64.dll";
+#else
+    http.dll = std::string("\x7f" "ELF") + std::string(300, '\0');
+    const std::string file = "_lin64.so";
+#endif
     const std::string next = "99.0.0";
     http.available = true;
-    http.latestJson = "{\"version\":\"" + next + "\",\"url\":\"/downloads/EmulkonDriver_" + next +
-                      "_win64.dll\",\"size\":" + std::to_string(http.dll.size()) + ",\"sha256\":\"" + sha256Hex(http.dll) + "\"}";
+    http.latestJson = "{\"version\":\"" + next + "\",\"url\":\"/downloads/EmulkonDriver_" + next + file +
+                      "\",\"size\":" + std::to_string(http.dll.size()) + ",\"sha256\":\"" + sha256Hex(http.dll) + "\"}";
     CHECK(checkForUpdate(http, "http://srv/", 1000, "WS", message) == UpdateCheck::Downloaded);
     CHECK(message.find("Загружена версия драйвера 99.0.0") != std::string::npos);
-    CHECK(http.gets.size() == 3 && http.gets[2] == "http://srv/downloads/EmulkonDriver_99.0.0_win64.dll");
+    CHECK(http.gets.size() == 3 && http.gets[2] == "http://srv/downloads/EmulkonDriver_99.0.0" + file);
     auto versions = cachedVersions();
     CHECK(versions.size() == 1 && versions[0] == next);  // 0.0.1 вычищена
-    CHECK(GetFileAttributesW(oldDir.c_str()) == INVALID_FILE_ATTRIBUTES);
+    CHECK(!sys::isDir(oldDir));
 
     CHECK(checkForUpdate(http, "http://srv", 1000, "WS", message) == UpdateCheck::Pending);
     CHECK(http.gets.size() == 4);  // второй раз файл не качаем
 
     // Подмена файла по дороге: контрольная сумма не сходится — в кэш ничего не попадает.
-    http.latestJson = "{\"version\":\"99.0.1\",\"url\":\"/downloads/EmulkonDriver_99.0.1_win64.dll\",\"sha256\":\"" +
+    http.latestJson = "{\"version\":\"99.0.1\",\"url\":\"/downloads/EmulkonDriver_99.0.1" + file + "\",\"sha256\":\"" +
                       sha256Hex("другое") + "\"}";
     CHECK(checkForUpdate(http, "http://srv", 1000, "WS", message) == UpdateCheck::Failed);
     CHECK(message.find("контрольная сумма") != std::string::npos);
     CHECK(cachedVersions().size() == 1);
 
-    removeTree(root);
-    SetEnvironmentVariableW(L"EMULKON_DRIVER_CACHE", nullptr);
-}
+    // Файл не той ОС (DLL на Linux, ELF на Windows) не ставится, даже с верной суммой.
+#ifdef _WIN32
+    const std::string alien = std::string("\x7f" "ELF") + std::string(100, '\0');
+#else
+    const std::string alien = std::string("MZ") + std::string(100, '\x90');
 #endif
+    http.dll = alien;
+    http.latestJson = "{\"version\":\"99.0.2\",\"url\":\"/downloads/EmulkonDriver_99.0.2" + file + "\",\"sha256\":\"" +
+                      sha256Hex(alien) + "\"}";
+    CHECK(checkForUpdate(http, "http://srv", 1000, "WS", message) == UpdateCheck::Failed);
+    CHECK(message.find("не библиотека драйвера") != std::string::npos);
+
+    removeTree(root);
+    sys::setEnv("EMULKON_DRIVER_CACHE", nullptr);
+}
+#ifndef _WIN32
+// Маленький HTTP-сервер на loopback для проверки клиента на сокетах (http_posix.cpp): каждый
+// запрос — один заранее заданный сырой ответ; запрос запоминается.
+struct LoopbackServer {
+    int listenFd = -1;
+    int port = 0;
+    std::vector<std::string> requests;
+    std::thread thread;
+
+    explicit LoopbackServer(std::vector<std::string> responses) {
+        listenFd = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        bind(listenFd, reinterpret_cast<sockaddr*>(&a), sizeof a);
+        socklen_t len = sizeof a;
+        getsockname(listenFd, reinterpret_cast<sockaddr*>(&a), &len);
+        port = ntohs(a.sin_port);
+        listen(listenFd, 8);
+        thread = std::thread([this, responses]() {
+            for (const std::string& resp : responses) {
+                int c = accept(listenFd, nullptr, nullptr);
+                if (c < 0) return;
+                std::string req;
+                char buf[4096];
+                // Заголовки и тело (по Content-Length) — целиком.
+                for (;;) {
+                    ssize_t n = recv(c, buf, sizeof buf, 0);
+                    if (n <= 0) break;
+                    req.append(buf, static_cast<size_t>(n));
+                    size_t end = req.find("\r\n\r\n");
+                    if (end == std::string::npos) continue;
+                    size_t cl = req.find("Content-Length: ");
+                    size_t need = cl == std::string::npos ? 0 : std::stoul(req.substr(cl + 16));
+                    if (req.size() >= end + 4 + need) break;
+                }
+                requests.push_back(req);
+                if (resp == "SLOW") {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                } else {
+                    send(c, resp.data(), resp.size(), MSG_NOSIGNAL);
+                }
+                close(c);
+            }
+        });
+    }
+    std::string url(const std::string& path) const { return "http://127.0.0.1:" + std::to_string(port) + path; }
+    ~LoopbackServer() {
+        shutdown(listenFd, SHUT_RDWR);
+        close(listenFd);
+        if (thread.joinable()) thread.join();
+    }
+};
+
+static void testHttpClient() {
+    auto http = makeHttpClient("unit");
+    {
+        LoopbackServer srv({"HTTP/1.1 201 Created\r\nContent-Length: 11\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}",
+                            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nЖу\r\n9\r\nрнал!\r\n0\r\n\r\n",
+                            "HTTP/1.1 404 Not Found\r\n\r\nнет такого",
+                            "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nda"});
+        HttpResponse r = http->post(srv.url("/api/v1/sessions?x=1"), "{\"a\":1}", {{"X-Emulkon-Session", "s1"}}, 3000);
+        CHECK(r.error.empty() && r.status == 201 && r.body == "{\"ok\":true}");
+        r = http->get(srv.url("/chunked"), {}, 3000);
+        CHECK(r.error.empty() && r.status == 200 && r.body == "Журнал!");
+        r = http->remove(srv.url("/gone"), {}, 3000);
+        CHECK(r.error.empty() && r.status == 404 && r.body == "нет такого");  // тело до закрытия соединения
+        r = http->get(srv.url("/short"), {}, 3000);
+        CHECK(!r.error.empty() && r.error.find("оборван") != std::string::npos);
+        const std::string& first = srv.requests.at(0);
+        CHECK(first.rfind("POST /api/v1/sessions?x=1 HTTP/1.1\r\n", 0) == 0);
+        CHECK(first.find("\r\nHost: 127.0.0.1:" + std::to_string(srv.port) + "\r\n") != std::string::npos);
+        CHECK(first.find("\r\nX-Emulkon-Session: s1\r\n") != std::string::npos);
+        CHECK(first.find("\r\nContent-Length: 7\r\n") != std::string::npos && first.size() >= 7 &&
+              first.compare(first.size() - 7, 7, "{\"a\":1}") == 0);
+        CHECK(srv.requests.at(2).rfind("DELETE /gone HTTP/1.1", 0) == 0);
+    }
+    {
+        // Поток событий: куски приходят в onData; отмена из другого потока прерывает чтение.
+        LoopbackServer srv({"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\ndata: 1\n\n", "SLOW"});
+        StreamCancel cancel;
+        std::string got;
+        HttpResponse r = http->stream(srv.url("/events"), {}, 2000, cancel, [&](const std::string& c) {
+            got += c;
+            return true;
+        });
+        CHECK(r.status == 200 && got == "data: 1\n\n" && r.error.empty());
+        CHECK(srv.requests.at(0).find("\r\nAccept: text/event-stream\r\n") != std::string::npos);
+        StreamCancel cancel2;
+        std::thread stopper([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            cancel2.cancel();
+        });
+        auto t0 = std::chrono::steady_clock::now();
+        r = http->stream(srv.url("/events"), {}, 5000, cancel2, [](const std::string&) { return true; });
+        stopper.join();
+        CHECK(r.error == "отменено");
+        CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(1400));  // не ждали таймаута
+    }
+    {
+        LoopbackServer srv({"SLOW"});
+        HttpResponse r = http->get(srv.url("/slow"), {}, 300);
+        CHECK(r.timeout && r.error.find("таймаут") != std::string::npos);
+    }
+    HttpResponse r = http->get("https://127.0.0.1:1/x", {}, 1000);
+    CHECK(r.error.find("https") != std::string::npos);
+    r = http->get("http://127.0.0.1:1/x", {}, 1000);  // порт закрыт
+    CHECK(!r.error.empty() && r.status == 0);
+    r = http->get("http://", {}, 1000);
+    CHECK(r.error.find("неверный адрес") != std::string::npos);
+}
+#else
+static void testHttpClient() {}  // WinHTTP проверяют стенд (harness) и живые тесты
+#endif
+
 int main() {
     testJson();
     testText();
@@ -284,9 +412,8 @@ int main() {
     testRequestId();
     testSse();
     testUpdateLogic();
-#ifdef _WIN32
     testUpdateCache();
-#endif
+    testHttpClient();
     std::printf("unit: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

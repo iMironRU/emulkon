@@ -228,7 +228,8 @@ int removeTree(const std::wstring& dir, const std::wstring& keep = {}) {
 
 // removeStale убирает из каталога файлы прежних версий: сервер и так раздаёт самые новые.
 void removeStale(const std::wstring& dir) {
-    const std::wstring keep[] = {driverPackageName(), driverDllName(true), driverDllName(false), setupDownloadName()};
+    const std::wstring keep[] = {driverPackageName(), driverDllName(true), driverDllName(false), setupDownloadName(),
+                                 L"EmulkonDriver_" + version() + L"_lin64.so"};
     for (const wchar_t* mask : {L"EmulkonDriver_*", L"EmulkonSetup_*", L"*.old-*"}) {
         WIN32_FIND_DATAW fd;
         HANDLE h = FindFirstFileW((dir + L"\\" + mask).c_str(), &fd);
@@ -600,6 +601,11 @@ bool install(const Options& o, const Sink& sink) {
             report(sink, Status::Fail, L"Файлы программы", f.path + L": " + error);
             return false;
         }
+    }
+    // Драйвер Linux есть в установщике, только если его собрал CI: сервер раздаст его кассам с Linux.
+    if (FindResourceW(nullptr, L"LINUX64", MAKEINTRESOURCEW(10))) {
+        const std::wstring so = driverDir(dir) + L"\\EmulkonDriver_" + version() + L"_lin64.so";
+        if (!extract(L"LINUX64", so, error)) report(sink, Status::Warn, L"Драйвер Linux", so + L": " + error);
     }
     // Установщик — он же мастер обслуживания и «Проверка работы»; его же раздаёт страница загрузок.
     const std::wstring self = selfPath();

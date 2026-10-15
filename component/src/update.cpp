@@ -1,9 +1,20 @@
-// Самообновление драйвера: переносимая часть — версии, SHA-256, разбор предложения сервера.
+// Самообновление драйвера: версии, SHA-256, разбор предложения сервера, кэш и скачивание.
+// Файлы и потоки — через платформенный слой (platform.h).
 #include "update.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
+#include <mutex>
+#include <set>
+
+#include "platform.h"
+
+// Имя файла драйвера этой сборки (EmulkonDriver_win64.dll, libEmulkonDriver_lin64.so) — задаёт CMake.
+#ifndef EMULKON_DLL_FILE
+#define EMULKON_DLL_FILE "EmulkonDriver.dll"
+#endif
 
 namespace emu {
 
@@ -129,6 +140,210 @@ std::vector<std::string> newerVersions(const std::vector<std::string>& names, co
     }
     std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) { return compareVersions(a, b) > 0; });
     return out;
+}
+const char* driverOS() {
+#ifdef _WIN32
+    return "windows";
+#else
+    return "linux";
+#endif
+}
+
+// --- кэш обновлений: файлы через платформенный слой (platform.h) ---
+
+namespace {
+
+std::string trimSlash(std::string s) {
+    while (!s.empty() && s.back() == '/') s.pop_back();
+    return s;
+}
+
+// looksLikeDriver — заголовок файла: DLL Windows начинается с «MZ», библиотека Linux — с ELF.
+bool looksLikeDriver(const std::string& data) {
+#ifdef _WIN32
+    return data.size() >= 2 && data[0] == 'M' && data[1] == 'Z';
+#else
+    return data.size() >= 4 && data.compare(0, 4, "\x7f" "ELF") == 0;
+#endif
+}
+
+// cleanupOlder удаляет из кэша драйвер этой архитектуры старше version. Загруженную в другом
+// процессе 1С DLL Windows удалить не даст — она останется до следующего раза.
+void cleanupOlder(const std::string& version) {
+    const std::string root = updateCacheRoot();
+    for (const std::string& name : sys::listDirs(root)) {
+        if (validVersion(name) && compareVersions(name, version) < 0) {
+            sys::removeFile(cachedDllPath(name));
+            sys::removeDir(root + sys::kSep + name);  // только если каталог опустел
+        }
+    }
+}
+
+std::mutex g_mu;
+std::set<std::string> g_started;  // версии, за которыми уже ходили в этом процессе
+
+}  // namespace
+
+std::string updateCacheRoot() {
+    std::string custom = sys::env("EMULKON_DRIVER_CACHE");
+    return custom.empty() ? sys::defaultCacheRoot() : custom;
+}
+
+std::string cachedDllPath(const std::string& version) {
+    return updateCacheRoot() + sys::kSep + version + sys::kSep + EMULKON_DLL_FILE;
+}
+
+std::vector<std::string> cachedVersions() {
+    std::vector<std::string> out;
+    const std::string root = updateCacheRoot();
+    if (root.empty()) return out;
+    for (const std::string& name : sys::listDirs(root)) {
+        if (validVersion(name) && sys::isFile(cachedDllPath(name))) out.push_back(name);
+    }
+    return out;
+}
+
+bool updateCached(const UpdateOffer& offer) {
+    std::string data;
+    return offer.valid() && sys::readFile(cachedDllPath(offer.version), data) && sha256Hex(data) == offer.sha256;
+}
+
+bool redirectDisabled() { return sys::env("EMULKON_DRIVER_NO_UPDATE") == "1"; }
+
+void rememberServer(const std::string& url) {
+    const std::string root = updateCacheRoot();
+    if (root.empty() || url.empty()) return;
+    if (rememberedServer() == url) return;
+    if (sys::ensureDir(root)) sys::writeFile(root + sys::kSep + "server.txt", url);
+}
+
+std::string rememberedServer() {
+    std::string s;
+    const std::string root = updateCacheRoot();
+    if (root.empty() || !sys::readFile(root + sys::kSep + "server.txt", s)) return {};
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back();
+    return s;
+}
+
+bool installUpdate(HttpClient& http, const std::string& serverUrl, const UpdateOffer& offer, int timeoutMs,
+                   const std::string& workstation, std::string& message) {
+    if (!offer.valid()) {
+        message = "сервер прислал неверное описание обновления";
+        return false;
+    }
+    const std::string root = updateCacheRoot();
+    if (root.empty()) {
+        message = "не определить каталог кэша обновлений (LOCALAPPDATA, XDG_CACHE_HOME или HOME)";
+        return false;
+    }
+    if (updateCached(offer)) return true;
+
+    Headers headers;
+    if (!workstation.empty()) headers.emplace_back("X-Emulkon-Workstation", workstation);
+    HttpResponse r = http.get(trimSlash(serverUrl) + offer.url, headers, timeoutMs > 0 ? timeoutMs : 60000);
+    if (!r.error.empty()) {
+        message = "скачать " + offer.url + ": " + r.error;
+        return false;
+    }
+    if (r.status != 200) {
+        message = "скачать " + offer.url + ": HTTP " + std::to_string(r.status);
+        return false;
+    }
+    if (offer.size > 0 && static_cast<int64_t>(r.body.size()) != offer.size) {
+        message = "скачано " + std::to_string(r.body.size()) + " байт вместо " + std::to_string(offer.size);
+        return false;
+    }
+    if (sha256Hex(r.body) != offer.sha256) {
+        message = "контрольная сумма скачанного файла не совпала с объявленной сервером";
+        return false;
+    }
+    if (!looksLikeDriver(r.body)) {
+        message = "скачанный файл — не библиотека драйвера для этой ОС";
+        return false;
+    }
+
+    const std::string dir = root + sys::kSep + offer.version;
+    if (!sys::ensureDir(dir)) {
+        message = "создать каталог " + dir + ": " + sys::lastError();
+        return false;
+    }
+    // Сначала во временный файл, потом переименование: недокачанный драйвер не получит рабочее имя.
+    const std::string path = cachedDllPath(offer.version);
+    const std::string tmp = path + ".tmp" + std::to_string(sys::processId());
+    if (!sys::writeFile(tmp, r.body)) {
+        message = "записать " + tmp + ": " + sys::lastError();
+        return false;
+    }
+    if (!sys::replaceFile(tmp, path)) {
+        std::string why = sys::lastError();
+        sys::removeFile(tmp);
+        if (updateCached(offer)) return true;  // параллельно скачал другой процесс 1С
+        message = "сохранить " + path + ": " + why;
+        return false;
+    }
+    cleanupOlder(offer.version);
+    return true;
+}
+
+UpdateCheck checkForUpdate(HttpClient& http, const std::string& serverUrl, int timeoutMs, const std::string& workstation,
+                           std::string& message) {
+    const std::string server = trimSlash(serverUrl);
+    HttpResponse r = http.get(server + "/api/v1/driver/update?version=" EMULKON_VERSION "&arch=" + driverArch() +
+                                  "&os=" + driverOS(),
+                              {}, timeoutMs);
+    if (!r.error.empty()) {
+        message = "Нет связи с сервером эмуляции " + server + ": " + r.error;
+        return UpdateCheck::Failed;
+    }
+    if (r.status == 404) {
+        message = "Сервер эмуляции " + server + " не раздаёт обновления драйвера (сервер старше версии 0.2.0)";
+        return UpdateCheck::Failed;
+    }
+    Json resp;
+    std::string err;
+    if (r.status != 200 || !parseJson(r.body, resp, err)) {
+        message = "Сервер эмуляции ответил на проверку обновления не по протоколу (HTTP " + std::to_string(r.status) + ")";
+        return UpdateCheck::Failed;
+    }
+    const Json* avail = resp.get("update_available");
+    UpdateOffer offer = parseUpdateOffer(resp.get("latest"));
+    if (!(avail && avail->isBool() && avail->b)) {
+        message = "Установлена последняя версия драйвера: " EMULKON_VERSION ".";
+        if (!offer.valid()) message += " На сервере " + server + " файлы драйвера не опубликованы.";
+        return UpdateCheck::UpToDate;
+    }
+    if (!offer.valid()) {
+        message = "Сервер эмуляции прислал неверное описание обновления";
+        return UpdateCheck::Failed;
+    }
+    if (updateCached(offer)) {
+        message = "Версия драйвера " + offer.version + " уже загружена и начнёт работать после перезапуска 1С (сейчас " +
+                  EMULKON_VERSION + ").";
+        return UpdateCheck::Pending;
+    }
+    std::string why;
+    if (!installUpdate(http, server, offer, timeoutMs, workstation, why)) {
+        message = "Не удалось загрузить версию драйвера " + offer.version + ": " + why;
+        return UpdateCheck::Failed;
+    }
+    message = "Загружена версия драйвера " + offer.version + ". Она начнёт работать после перезапуска 1С (сейчас " +
+              EMULKON_VERSION + ").";
+    return UpdateCheck::Downloaded;
+}
+
+void startBackgroundUpdate(const std::string& serverUrl, const UpdateOffer& offer, int timeoutMs,
+                           const std::string& workstation) {
+    if (!offer.valid()) return;
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        if (!g_started.insert(offer.version).second) return;
+    }
+    if (updateCached(offer)) return;
+    sys::runDetached([serverUrl, offer, timeoutMs, workstation]() {
+        std::unique_ptr<HttpClient> http = makeHttpClient(std::string("Emulkon-Driver/") + EMULKON_VERSION);
+        std::string message;
+        installUpdate(*http, serverUrl, offer, timeoutMs, workstation, message);
+    });
 }
 
 }  // namespace emu

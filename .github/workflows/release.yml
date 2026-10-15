@@ -1,6 +1,7 @@
 name: Релиз
 
-# Тег vX.Y.Z (совпадает с файлом VERSION) — полная сборка с тестами и релиз GitHub: установщик, пакет драйвера,
+# Тег vX.Y.Z (совпадает с файлом VERSION) — полная сборка с тестами (драйвер Linux — на Linux) и релиз GitHub:
+# установщик, пакет драйвера (Windows и Linux),
 # DLL драйвера для самообновления и SHA256SUMS. Описание — раздел версии из CHANGELOG.md.
 on:
   push:
@@ -10,11 +11,53 @@ permissions:
   contents: write
 
 jobs:
+  linux-driver:
+    name: Linux — драйвер (.so)
+    runs-on: ubuntu-latest
+    # manylinux_2_28 (AlmaLinux 8, glibc 2.28, GCC из gcc-toolset): собранная здесь библиотека работает на
+    # Astra 1.7, РЕД ОС, Альт, Ubuntu 20.04 и новее. Debian 11 не годится: его security-архив снят.
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    steps:
+      - name: Инструменты сборки
+        run: |
+          dnf install -y -q unzip git binutils libuuid-devel > /dev/null  # uuid/uuid.h — для com.h из SDK 1С
+          # CMake — официальная сборка Kitware с проверкой SHA-256: версия не зависит от образа.
+          v=3.30.5
+          cd /tmp
+          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-linux-x86_64.tar.gz"
+          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-SHA-256.txt"
+          grep "cmake-$v-linux-x86_64.tar.gz" "cmake-$v-SHA-256.txt" | sha256sum -c -
+          tar -xzf "cmake-$v-linux-x86_64.tar.gz" -C /opt
+          ln -sf "/opt/cmake-$v-linux-x86_64/bin/"* /usr/local/bin/
+          cmake --version | head -n 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: Сборка и тесты
+        env:
+          ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
+        run: bash .github/scripts/linux-driver.sh
+      - name: Драйвер Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-driver
+          path: dist-linux/
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Сборка и релиз
     runs-on: windows-2022
+    needs: linux-driver
     steps:
       - uses: actions/checkout@v4
+      - name: Драйвер Linux из задачи linux-driver
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-driver
+          path: dist-linux
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -35,14 +78,19 @@ jobs:
         run: .github/scripts/onec-sdk.ps1 -Required
       - name: Сборка и тесты
         shell: powershell
-        run: .\build.ps1
+        run: .\build.ps1 -LinuxDriver dist-linux\libEmulkonDriver_lin64.so
+      - name: Пакеты сервера Linux (.deb, .rpm)
+        shell: powershell
+        run: .\deploy\linux\package.ps1
       - name: Файлы релиза и SHA256SUMS
         shell: pwsh
         run: |
           $v = $env:VERSION
-          $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll"
+          $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll", "EmulkonDriver_${v}_lin64.so"
           New-Item -ItemType Directory -Force release | Out-Null
           foreach ($f in $files) { Copy-Item (Join-Path dist/downloads $f) release }
+          foreach ($f in "emulkon_${v}-1_amd64.deb", "emulkon-${v}-1.x86_64.rpm") { Copy-Item (Join-Path dist/linux $f) release }
+          $files += "emulkon_${v}-1_amd64.deb", "emulkon-${v}-1.x86_64.rpm"
           Push-Location release
           $sums = foreach ($f in $files) { "{0}  {1}" -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), $f }
           [IO.File]::WriteAllText((Join-Path $PWD "SHA256SUMS"), ($sums -join "`n") + "`n")
