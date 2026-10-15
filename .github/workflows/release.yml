@@ -30,7 +30,7 @@ jobs:
           tar -xzf "cmake-$v-linux-x86_64.tar.gz" -C /opt
           ln -sf "/opt/cmake-$v-linux-x86_64/bin/"* /usr/local/bin/
           cmake --version | head -n 1
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -52,7 +52,7 @@ jobs:
     runs-on: windows-2022
     needs: linux-driver
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Драйвер Linux из задачи linux-driver
         uses: actions/download-artifact@v4
         with:
