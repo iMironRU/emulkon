@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # linux-driver.sh — драйвер для Linux в CI: сборка libEmulkonDriver_lin64.so, модульные тесты и стенд «как
 # платформа 1С» без сервера и с живым сервером эмуляции (собирается здесь же из server/).
-# Запускается в контейнере Debian 11 (glibc 2.31): собранная там .so работает и на дистрибутивах постарше.
+# Запускается в контейнере manylinux_2_28 (glibc 2.28): собранная там .so работает и на дистрибутивах новее.
 #
 # Нужны: ONEC_SDK_B64 (zip заголовков SDK Native API 1С в base64; без него — пропуск), go в PATH.
 # Результат: dist-linux/libEmulkonDriver_lin64.so.
@@ -37,7 +37,8 @@ done
 curl -fsS http://127.0.0.1:8799/api/v1/health > /dev/null || { cat "$work/server.log"; exit 1; }
 
 export EMULKON_TEST_SERVER=http://127.0.0.1:8799
-cmake -S "$root/component" -B "$work/build" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DONEC_SDK=$sdk"
+gen=Ninja; command -v ninja > /dev/null || gen="Unix Makefiles"
+cmake -S "$root/component" -B "$work/build" -G "$gen" -DCMAKE_BUILD_TYPE=Release "-DONEC_SDK=$sdk"
 cmake --build "$work/build"
 ctest --test-dir "$work/build" --output-on-failure
 
