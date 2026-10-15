@@ -48,7 +48,7 @@ jobs:
     steps:
       - name: Инструменты сборки
         run: |
-          dnf install -y -q unzip git binutils > /dev/null
+          dnf install -y -q unzip git binutils libuuid-devel > /dev/null  # uuid/uuid.h — для com.h из SDK 1С
           # CMake — официальная сборка Kitware с проверкой SHA-256: версия не зависит от образа.
           v=3.30.5
           cd /tmp
