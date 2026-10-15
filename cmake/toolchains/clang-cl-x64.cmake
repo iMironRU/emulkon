@@ -6,7 +6,7 @@ set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR AMD64)
 
 if(DEFINED ENV{LLVM_DIR_BIN})
-  set(_LLVM "$ENV{LLVM_DIR_BIN}")
+  file(TO_CMAKE_PATH "$ENV{LLVM_DIR_BIN}" _LLVM)  # обратные слеши Windows — в CMake это escape
 else()
   set(_LLVM "C:/Program Files/LLVM/bin")
 endif()
