@@ -60,6 +60,14 @@ bool askJournalFilter(HWND parent);       // отбор журнала по те
 // createTextPage — страница свойств «только чтение»: заголовок и многострочный текст.
 HPROPSHEETPAGE createTextPage(const wchar_t* title, const std::wstring& head, const std::wstring& text);
 
+// --- обновления и настройки (этап 5) ---
+
+// checkUpdatesDialog — latest.json последнего выпуска; новее — «что нового», скачать с проверкой SHA-256 и
+// запустить мастер обновления.
+bool checkUpdatesDialog(HWND parent);
+bool exportSettingsDialog(HWND parent);  // значения HKLM\Software\Emulkon\Server в файл JSON
+bool importSettingsDialog(HWND parent);  // из файла: записать в реестр и перезапустить службу
+
 enum class ServiceAction { Start, Stop, Restart };
 // serviceAction — запустить, остановить или перезапустить службу (ждёт до 30 с); ошибка — в окне.
 bool serviceAction(HWND parent, ServiceAction action);
