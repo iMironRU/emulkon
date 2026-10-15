@@ -111,6 +111,30 @@ SDK Native API 1С (VNCOMPS) в репозиторий не входит — е�
   установленные компоненты по имени файла (`%APPDATA%\1C\1cv8\ExtCompT\registry.xml`) и DLL
   с прежним именем не переустанавливает — после «Обновить драйвер» касса осталась бы на старой версии.
 
+С драйвером Linux (`build.ps1 -LinuxDriver <.so>`, в CI — всегда) в пакете ещё
+`libEmulkonDriver_<версия>_lin64.so`, в `MANIFEST.XML` — строка с `os="Linux"`.
+
+## Сборка (Linux)
+
+Та же кодовая база: платформенный слой — `platform.h` (`platform_win.cpp` / `platform_posix.cpp`),
+HTTP — WinHTTP на Windows и свой клиент HTTP/1.1 на сокетах на Linux (`http_posix.cpp`: Content-Length,
+chunked, таймауты, поток событий с отменой). Внешних библиотек нет: `libstdc++` и `libgcc` слинкованы
+статически, наружу видны только экспорты Native API (`version.script`).
+
+```bash
+cmake -S component -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DONEC_SDK=<каталог include SDK>
+cmake --build build && ctest --test-dir build --output-on-failure
+```
+
+Нужны GCC 10+, CMake 3.20+ и `uuid/uuid.h` (его подключает `com.h` из SDK). CI собирает в
+`manylinux_2_28` (glibc 2.28) — так библиотека работает на Astra 1.7, РЕД ОС, Альт, Ubuntu 20.04 и
+новее ([.github/scripts/linux-driver.sh](../.github/scripts/linux-driver.sh)). Тесты те же, что на
+Windows; для `harness_server` нужен сервер (`EMULKON_TEST_SERVER`).
+
+Самообновление на Linux: кэш `$XDG_CACHE_HOME/emulkon/driver/<версия>/` (по умолчанию
+`~/.cache/emulkon/…`), сервер отдаёт `EmulkonDriver_<версия>_lin64.so` (`os=Linux` в проверке
+обновления), переадресация экспортов — через `dlopen`.
+
 БПО берёт имя класса из `progid` (часть после точки) и создаёт объект `AddIn.<символическое имя>.EmulkonDriver`.
 
 ## Подключение в 1С
@@ -137,6 +161,6 @@ SDK Native API 1С (VNCOMPS) в репозиторий не входит — е�
 
 ## Не сделано
 
-- **Linux** (`libEmulkonDriver_lin64.so`): нужен HTTP-транспорт на libcurl, CMake пока
-  останавливается с ошибкой.
+- Linux x86 (32 бита) и ARM: собирается только x86_64. Проверка в настоящей 1С под Linux —
+  [tests/linux](../tests/linux/README.md).
 - Лог драйвера на рабочем месте. `LogIsEnabled="false"`: журнал обменов ведёт сервер.
