@@ -81,7 +81,8 @@ Resize-VHD -Path $disk -SizeBytes ($DiskGB * 1GB)
 New-VM -Name $Name -Generation 2 -MemoryStartupBytes ($MemoryGB * 1GB) -VHDPath $disk -SwitchName $Switch -Path $Root | Out-Null
 Set-VM -Name $Name -ProcessorCount $Cpu -AutomaticCheckpointsEnabled $false -EnhancedSessionTransportType HvSocket
 Set-VMFirmware -VMName $Name -EnableSecureBoot Off
-Enable-VMIntegrationService -VMName $Name -Name "Guest Service Interface"
+# «Интерфейс гостевой службы» (Copy-VMFile): имя зависит от языка Windows — ищем по идентификатору.
+Get-VMIntegrationService -VMName $Name | Where-Object { $_.Id -like "*\6C09BB55-D683-4DA0-8931-C9BF705F6480" } | Enable-VMIntegrationService
 Checkpoint-VM -Name $Name -SnapshotName "чистая Ubuntu"
 Start-VM -Name $Name
 vmconnect.exe localhost $Name
