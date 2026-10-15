@@ -1,6 +1,6 @@
 name: Сайт
 
-# Страница проекта (site/ — статика без сборки) на GitHub Pages: https://imironru.github.io/emulkon/
+# Страница проекта (site/ — статика без сборки) на GitHub Pages: https://imiron.ru/emulkon/ (домен сайта пользователя iMironRU)
 on:
   push:
     branches: [main]

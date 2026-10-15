@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/github/go-mod/go-version/iMironRU/emulkon?filename=server%2Fgo.mod" alt="Go">
 </p>
 
-**Сайт проекта: [imironru.github.io/emulkon](https://imironru.github.io/emulkon/)** — возможности, варианты использования, сравнение.
+**Сайт проекта: [imiron.ru/emulkon](https://imiron.ru/emulkon/)** — возможности, варианты использования, сравнение.
 
 *Emulkon is a hardware emulator for 1C:Enterprise's Peripheral Equipment Library (BPO): fiscal registers, payment
 terminals, scales, printers and scanners — a real Native API driver backed by an emulation server with fault
