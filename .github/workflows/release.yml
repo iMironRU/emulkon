@@ -79,6 +79,9 @@ jobs:
       - name: Сборка и тесты
         shell: powershell
         run: .\build.ps1 -LinuxDriver dist-linux\libEmulkonDriver_lin64.so
+      - name: Пакеты сервера Linux (.deb, .rpm)
+        shell: powershell
+        run: .\deploy\linux\package.ps1
       - name: Файлы релиза и SHA256SUMS
         shell: pwsh
         run: |
@@ -86,6 +89,8 @@ jobs:
           $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll", "EmulkonDriver_${v}_lin64.so"
           New-Item -ItemType Directory -Force release | Out-Null
           foreach ($f in $files) { Copy-Item (Join-Path dist/downloads $f) release }
+          foreach ($f in "emulkon_${v}-1_amd64.deb", "emulkon-${v}-1.x86_64.rpm") { Copy-Item (Join-Path dist/linux $f) release }
+          $files += "emulkon_${v}-1_amd64.deb", "emulkon-${v}-1.x86_64.rpm"
           Push-Location release
           $sums = foreach ($f in $files) { "{0}  {1}" -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), $f }
           [IO.File]::WriteAllText((Join-Path $PWD "SHA256SUMS"), ($sums -join "`n") + "`n")

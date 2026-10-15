@@ -11,6 +11,9 @@
   (glibc 2.28+). Самообновление на Linux — кэш `~/.cache/emulkon/driver/`.
 - Сервер отдаёт обновление драйвера по ОС (`os=` в проверке обновления), журнал пишет `driver_os`.
 - CI собирает драйвер Linux и прогоняет те же тесты, что на Windows, включая стенд на живом сервере.
+- **Сервер для Linux пакетом** — `emulkon_<версия>-1_amd64.deb` и `emulkon-<версия>-1.x86_64.rpm`: служба systemd
+  `emulkon`, настройки в `/etc/emulkon/emulkon.env`, данные в `/var/lib/emulkon`, драйвер для касс внутри
+  ([deploy/linux](deploy/linux/README.md)). CI ставит пакеты на чистую Ubuntu и в Rocky Linux 9.
 
 ### Не проверено
 - Драйвер Linux в настоящей 1С — порядок проверки в [tests/linux](tests/linux/README.md).

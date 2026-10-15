@@ -120,3 +120,43 @@ jobs:
             dist/downloads/*
           retention-days: 14
           if-no-files-found: error
+      - name: Пакеты сервера Linux (.deb, .rpm)
+        shell: powershell
+        run: |
+          $v = (Get-Content VERSION -TotalCount 1).Trim()
+          if (Test-Path "dist\downloads\EmulkonDriver_${v}_lin64.so") { .\deploy\linux\package.ps1 } else { .\deploy\linux\package.ps1 -NoDriver }
+      - name: Пакеты Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/linux/*
+          retention-days: 14
+          if-no-files-found: error
+
+  linux-package:
+    name: Linux — пакет сервера (установка)
+    runs-on: ubuntu-latest
+    needs: windows
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: pkg
+      - name: .deb — установка, служба systemd, удаление
+        run: |
+          sudo apt-get install -y -qq ./pkg/emulkon_*_amd64.deb
+          systemctl is-active emulkon
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8737/api/v1/health > /dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8737/api/v1/health; echo
+          curl -fsS http://127.0.0.1:8737/api/v1/downloads | head -c 800; echo
+          test "$(sudo stat -c '%a %U' /etc/emulkon/emulkon.env)" = "600 root"
+          sudo journalctl -u emulkon --no-pager | tail -n 20
+          sudo apt-get remove -y -qq emulkon
+          if systemctl is-active --quiet emulkon; then echo "служба осталась после удаления"; exit 1; fi
+      - name: .rpm — установка в Rocky Linux 9
+        run: |
+          docker run --rm -v "$PWD/pkg:/pkg:ro" rockylinux:9 sh -ec '
+            rpm -i /pkg/emulkon-*.x86_64.rpm
+            emulkon -version
+            rpm -V emulkon
+            rpm -e emulkon'

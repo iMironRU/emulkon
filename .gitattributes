@@ -11,3 +11,6 @@ tests/1c/src/** text eol=crlf
 # Языки на странице репозитория
 *.bsl linguist-language=1C-Enterprise
 docs/** linguist-documentation
+# Файлы пакета Linux — только LF: systemd и /etc/emulkon/emulkon.env не терпят CR.
+deploy/linux/* text eol=lf
+deploy/linux/*.ps1 text eol=crlf

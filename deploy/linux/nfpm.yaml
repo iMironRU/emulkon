@@ -1,0 +1,55 @@
+# Пакеты сервера Эмулкон для Linux (.deb и .rpm) — nfpm (https://nfpm.goreleaser.com). Собирает package.ps1: он
+# подставляет ${EMULKON_VERSION} и ${EMULKON_STAGE} (каталог с bin/emulkon и driver/); пути — от корня репозитория.
+name: emulkon
+arch: amd64
+platform: linux
+version: ${EMULKON_VERSION}
+version_schema: semver
+release: 1
+section: misc
+priority: optional
+maintainer: iMironRU <https://github.com/iMironRU/emulkon>
+vendor: imiron.ru
+homepage: https://imiron.ru/emulkon/
+license: Apache-2.0
+description: |-
+  Эмулкон (ЭМУЛЯТОР) — сервер эмуляции подключаемого оборудования 1С:БПО.
+  ККТ, эквайринг, весы, сканеры, принтеры и другие типы — модели на сервере, драйвер 1С проксирует вызовы.
+  Служба systemd emulkon; настройки — /etc/emulkon/emulkon.env, веб-интерфейс — http://127.0.0.1:8737/.
+
+contents:
+  - src: ${EMULKON_STAGE}/bin/emulkon
+    dst: /usr/bin/emulkon
+    file_info:
+      mode: 0755
+  - src: ${EMULKON_STAGE}/driver/
+    dst: /usr/share/emulkon/driver/
+    file_info:
+      mode: 0644
+  - src: deploy/linux/emulkon.service
+    dst: /usr/lib/systemd/system/emulkon.service
+    file_info:
+      mode: 0644
+  - src: deploy/linux/emulkon.env
+    dst: /etc/emulkon/emulkon.env
+    type: config|noreplace
+    file_info:
+      mode: 0600
+  - src: LICENSE
+    dst: /usr/share/doc/emulkon/LICENSE
+    file_info:
+      mode: 0644
+  - src: NOTICE
+    dst: /usr/share/doc/emulkon/NOTICE
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: deploy/linux/postinstall.sh
+  preremove: deploy/linux/preremove.sh
+
+rpm:
+  group: Applications/System
+  compression: gzip  # zstd не понимает rpm в Альт и старых РЕД ОС
+deb:
+  compression: gzip
