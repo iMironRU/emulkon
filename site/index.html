@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Эмулкон — эмулятор подключаемого оборудования для 1С:БПО</title>
+  <meta name="description" content="Эмулкон: ККТ, эквайринг, весы, принтеры, сканеры и ещё 7 типов оборудования для 1С:БПО без железа. Настоящий драйвер Native API, сервер со сценариями сбоев, журналом и веб-интерфейсом. Бесплатно, открытый код.">
+  <meta property="og:title" content="Эмулкон — эмулятор подключаемого оборудования для 1С:БПО">
+  <meta property="og:description" content="Все 12 типов оборудования требований БПО 4.8 без железа: сценарии сбоев, журнал обменов, веб-интерфейс, трей и консоль MMC.">
+  <meta property="og:image" content="https://imironru.github.io/emulkon/images/console-summary.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="images/logo.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="images/logo.png" alt="">Эмулкон</a>
+    <nav>
+      <a class="opt" href="#features">Возможности</a>
+      <a class="opt" href="#usecases">Применение</a>
+      <a class="opt" href="#compare">Сравнение</a>
+      <a href="#start">Начать</a>
+      <a href="https://github.com/iMironRU/emulkon">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <div class="badges">
+        <span class="badge">Бесплатно</span>
+        <span class="badge">Открытый код, Apache-2.0</span>
+        <span class="badge">БПО 4.8, 12 типов</span>
+      </div>
+      <h1>Оборудование для 1С <span>без железа</span></h1>
+      <p class="lead">Эмулкон подключается к «1С:Библиотеке подключаемого оборудования» как настоящий драйвер — один на
+        ККТ, эквайринг, весы, принтеры, сканеры и ещё семь типов — и передаёт вызовы на сервер эмуляции со сценариями
+        сбоев, журналом обменов и веб-интерфейсом. Конфигурация 1С не меняется: проверяете то, что уйдёт в работу.</p>
+      <div class="buttons">
+        <a class="btn primary" id="download" href="https://github.com/iMironRU/emulkon/releases/latest">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+          <span id="download-text">Скачать для Windows</span>
+        </a>
+        <a class="btn" href="https://github.com/iMironRU/emulkon">Исходный код</a>
+      </div>
+      <p class="note">Windows 10 и 11, x64. Драйвер для 1С — x64 и x86. Сервер — также Linux и Docker.</p>
+    </div>
+    <figure>
+      <img src="images/console-summary.png" width="1000" height="560" alt="Консоль управления Эмулкона: сводка службы, устройств и рабочих мест">
+      <figcaption>Консоль управления «Эмулкон» в стиле Windows</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="alt" id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Что умеет</h2>
+      <p class="lead">Не заглушка, которая отвечает «успешно», а модели устройств с проверками настоящего железа.</p>
+    </div>
+    <div class="grid c4">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg></div>
+        <h3>Настоящие модели</h3>
+        <p>ККТ с ФН, сменами, чеками и коррекциями, маркировкой и очередью ОФД; терминал с оплатой, возвратом, отменой и
+          сверкой; весы с тарой и перегрузом.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 18a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></div>
+        <h3>Сбои по сценарию</h3>
+        <p>«Нет бумаги на третьем чеке», отказ терминала, задержка, обрыв связи, ответ после таймаута — правила
+          включаются на лету.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+        <h3>Журнал обменов</h3>
+        <p>Каждая команда драйвера, ответ, событие и сработавшее правило. Отбор и выгрузка в JSON Lines — для разбора и
+          отчётов.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Кассы в сети</h3>
+        <p>Один сервер на все рабочие места: каждая касса и каждый экземпляр оборудования в 1С — своё устройство со
+          своим состоянием.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg></div>
+        <h3>Веб-интерфейс</h3>
+        <p>Устройства и их состояние, лента печати, экран терминала «приложите карту», вес на весах, журнал вживую.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="7"/></svg></div>
+        <h3>Трей у кассы</h3>
+        <p>Чек и слип всплывают у часов и печатаются на принтер Windows; окна терминала и весов — прямо на рабочем месте.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <h3>Консоль MMC</h3>
+        <p>Служба, токены, рабочие места, устройства, сценарии и журнал — в привычной консоли Windows и Панели
+          управления.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+        <h3>Обновляется сам</h3>
+        <p>Установщик с «Изменить / Восстановить / Удалить», служба Windows, самообновление драйвера в 1С после
+          перезапуска.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="devices">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Все 12 типов оборудования</h2>
+      <p class="lead">Полный список типов «Требований к разработке драйверов подключаемого оборудования» 4.8 —
+        один драйвер на все.</p>
+    </div>
+    <div class="devices">
+      <div class="device"><b>ККТ</b><span>ФН, смены, чеки, коррекции, маркировка, ОФД</span></div>
+      <div class="device"><b>Эквайринговый терминал</b><span>оплата, возврат, отмена, сверка, преавторизация</span></div>
+      <div class="device"><b>Электронные весы</b><span>вес, тара, перегруз, нестабильный вес</span></div>
+      <div class="device"><b>Весы с печатью этикеток</b><span>товары и картинки из 1С, EAN-13 с весом</span></div>
+      <div class="device"><b>Принтер чеков</b><span>документы со штрихкодами, денежный ящик</span></div>
+      <div class="device"><b>Принтер этикеток</b><span>этикетки по шаблону 1С с просмотром</span></div>
+      <div class="device"><b>Сканер штрихкода</b><span>EAN, весовые, коды маркировки; режим клавиатуры</span></div>
+      <div class="device"><b>Считыватель карт</b><span>дисконтные и магнитные карты</span></div>
+      <div class="device"><b>Дисплей покупателя</b><span>текст и HTML-содержимое</span></div>
+      <div class="device"><b>Терминал сбора данных</b><span>выгрузка и загрузка документов</span></div>
+      <div class="device"><b>Считыватель RFID</b><span>метки и их чтение</span></div>
+      <div class="device"><b>Устройство распознавания</b><span>распознанный товар</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="usecases">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Кому и зачем</h2>
+      <p class="lead">Один инструмент — от отладки на ноутбуке до учебного класса и автотестов.</p>
+    </div>
+    <div class="usecase">
+      <div><h3>Разработка</h3><div class="who">программист 1С</div></div>
+      <div>Отлаживайте печать чеков, оплату картой, взвешивание и маркировку на своём компьютере — без ККТ, терминала и
+        весов на столе.
+        <ul>
+          <li>в журнале видно, какие методы драйвера вызвала 1С и с какими XML;</li>
+          <li>состояние устройства меняется в один щелчок: закрыть смену, кончить бумагу, заполнить ФН.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="usecase">
+      <div><h3>Тестирование</h3><div class="who">тестировщик</div></div>
+      <div>Проверьте, как конфигурация переживает отказы, которые на настоящем железе не воспроизвести по заказу.
+        <ul>
+          <li>сценарии: «нет бумаги на третьем чеке», отказ терминала по сумме, обрыв связи, ответ после таймаута;</li>
+          <li>исход оплаты по тестовой карте или копейкам суммы — прямо из 1С.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="usecase">
+      <div><h3>Внедрение и обучение</h3><div class="who">внедренец, преподаватель</div></div>
+      <div>Покажите клиенту кассу «вживую» или посадите группу за учебные места без единой кассы.
+        <ul>
+          <li>один сервер на класс, у каждого рабочего места — свои устройства;</li>
+          <li>чеки всплывают у кассира и печатаются на обычный принтер — с пометкой «ЭМУЛЯТОР».</li>
+        </ul>
+      </div>
+    </div>
+    <div class="usecase">
+      <div><h3>Автотесты и CI</h3><div class="who">DevOps, автоматизатор</div></div>
+      <div>Поднимите сервер в Docker рядом с тестовой базой и управляйте им из сценариев.
+        <ul>
+          <li>Control API: состояние устройств, правила сбоев, журнал, сброс между тестами;</li>
+          <li>повтор команды не выполняет её второй раз — тесты стабильны и при обрывах.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="usecase">
+      <div><h3>Поддержка</h3><div class="who">линия поддержки</div></div>
+      <div>Воспроизведите ошибку клиента: тот же обмен, те же ответы оборудования.
+        <ul>
+          <li>журнал выгружается файлом и прикладывается к обращению;</li>
+          <li>правило сбоя повторяет поведение «проблемного» устройства.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Как устроено</h2>
+      <p class="lead">Драйвер ничего не решает сам: он передаёт вызов на сервер, где живут модели, сценарии и журнал.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Схема: 1С:БПО вызывает драйвер, драйвер обращается к серверу Эмулкона; к серверу подключены веб-интерфейс, трей и консоль MMC">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="currentColor" style="fill: var(--muted)"/>
+          </marker>
+        </defs>
+        <rect class="box" x="10" y="20" width="430" height="260" rx="12"/>
+        <text x="30" y="48" class="small">Рабочее место 1С</text>
+        <rect class="box" x="40" y="70" width="160" height="70" rx="10"/>
+        <text x="120" y="110" text-anchor="middle">1С:БПО</text>
+        <rect class="box" x="250" y="70" width="170" height="70" rx="10"/>
+        <text x="335" y="102" text-anchor="middle">Драйвер</text>
+        <text x="335" y="122" text-anchor="middle" class="small">Native API, x64/x86</text>
+        <rect class="box" x="250" y="180" width="170" height="60" rx="10"/>
+        <text x="335" y="215" text-anchor="middle">Трей</text>
+        <path class="arrow" d="M200 105H246"/>
+
+        <rect class="core" x="560" y="90" width="200" height="110" rx="14"/>
+        <text x="660" y="130" text-anchor="middle" style="font-weight:700">Сервер Эмулкон</text>
+        <text x="660" y="152" text-anchor="middle" class="small">модели · сценарии · журнал</text>
+        <text x="660" y="172" text-anchor="middle" class="small">служба Windows / Docker</text>
+        <path class="arrow" d="M420 105H556"/>
+        <text x="488" y="96" text-anchor="middle" class="small">Device API</text>
+        <path class="arrow" d="M420 210C490 210 500 180 556 175"/>
+        <text x="490" y="228" text-anchor="middle" class="small">события, чеки</text>
+
+        <rect class="box" x="820" y="40" width="150" height="56" rx="10"/>
+        <text x="895" y="73" text-anchor="middle">Веб-интерфейс</text>
+        <rect class="box" x="820" y="122" width="150" height="56" rx="10"/>
+        <text x="895" y="155" text-anchor="middle">Консоль MMC</text>
+        <rect class="box" x="820" y="204" width="150" height="56" rx="10"/>
+        <text x="895" y="230" text-anchor="middle">Автотесты</text>
+        <text x="895" y="248" text-anchor="middle" class="small">Control API</text>
+        <path class="arrow" d="M816 68C790 68 790 120 764 125"/>
+        <path class="arrow" d="M816 150H764"/>
+        <path class="arrow" d="M816 232C790 232 790 180 764 175"/>
+      </svg>
+    </div>
+    <div class="grid c3 principles">
+      <div class="card"><h3>Контракт БПО первичен</h3><p>Методы, параметры и коды ошибок — по требованиям к драйверам
+        4.8, а не придуманы.</p></div>
+      <div class="card"><h3>Всё в журнале</h3><p>Каждый обмен, отказ и срабатывание правила. Токены и секреты в журнал
+        не пишутся.</p></div>
+      <div class="card"><h3>Явно эмулятор</h3><p>«ЭМУЛЯТОР» в названии драйвера, на чеках и слипах; только тестовые
+        данные — реальные карты и ПИН не принимаются.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="compare">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Сравнение с другими эмуляторами для 1С</h2>
+      <p class="lead">Эмуляторов ККТ для 1С много, но почти все работают с одним-двумя типами устройств, внутри процесса
+        1С и без журнала обменов.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th class="us">Эмулкон</th>
+            <th>1С:Эмулятор ККТ с передачей данных 5.2</th>
+            <th>«Учебный» драйвер ККТ 1С-Рарус</th>
+            <th>Эмулятор эквайринга TRISoft</th>
+            <th>Эмулятор эквайринга 1С-Рарус</th>
+            <th>Обработки и расширения (K-SOFT, «ККТ-ОНЛАЙН 54-ФЗ» и др.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Типы оборудования</th>
+            <td class="us"><span class="y">все 12</span> типов требований 4.8</td>
+            <td>ККТ, эквайринг, весы простого взвешивания, дисплей</td>
+            <td>ККТ</td>
+            <td>эквайринг</td>
+            <td>эквайринг</td>
+            <td>ККТ</td>
+          </tr>
+          <tr>
+            <th>Как подключается</th>
+            <td class="us">драйвер в БПО</td>
+            <td>драйвер в БПО</td>
+            <td>драйвер</td>
+            <td>драйвер</td>
+            <td>драйвер, БПО 2.x</td>
+            <td>внутри конфигурации, привязаны к её версии</td>
+          </tr>
+          <tr>
+            <th>x64</th>
+            <td class="us"><span class="y">да</span>, и x86</td>
+            <td><span class="y">да</span>, и x86</td>
+            <td>отдельные сборки по разрядности</td>
+            <td><span class="n">нет</span>, только x86</td>
+            <td><span class="n">нет</span>, только x86</td>
+            <td class="q">—</td>
+          </tr>
+          <tr>
+            <th>Linux</th>
+            <td class="us"><span class="n">драйвер — нет</span>; сервер — да, и Docker</td>
+            <td><span class="y">да</span></td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">—</td>
+          </tr>
+          <tr>
+            <th>Журнал обменов</th>
+            <td class="us"><span class="y">да</span>: команды, ответы, события; отбор и выгрузка</td>
+            <td><span class="n">нет</span></td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+          </tr>
+          <tr>
+            <th>Управление извне</th>
+            <td class="us"><span class="y">да</span>: веб-интерфейс, Control API, консоль MMC</td>
+            <td><span class="n">нет</span></td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+          </tr>
+          <tr>
+            <th>Сбои</th>
+            <td class="us"><span class="y">сценарии</span>: ошибка, задержка, обрыв, поздний ответ, смена состояния —
+              по устройству, методу, параметру, N-му вызову</td>
+            <td>отказ терминала по порогу суммы</td>
+            <td class="q">нет данных</td>
+            <td>ошибки терминала</td>
+            <td>принять или отклонить вручную</td>
+            <td class="q">нет данных</td>
+          </tr>
+          <tr>
+            <th>Несколько касс</th>
+            <td class="us"><span class="y">один сервер</span>, у каждой кассы и экземпляра — своё устройство</td>
+            <td>несколько экземпляров — только с одинаковыми настройками</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+          </tr>
+          <tr>
+            <th>Чек и слип</th>
+            <td class="us">лента печати в вебе, всплывающее окно у кассы, печать на принтер Windows, QR-код ФНС</td>
+            <td>чек на экране на доли секунды</td>
+            <td>похож на настоящий: фискальные признаки, QR-код, чеки сессии списком</td>
+            <td>слип и чек, свои строки слипа</td>
+            <td class="q">нет данных</td>
+            <td>на экран или обычный принтер</td>
+          </tr>
+          <tr>
+            <th>Исходный код</th>
+            <td class="us"><span class="y">открыт</span>, Apache-2.0</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+            <td class="q">нет данных</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="fine">Сведения о других продуктах — по их открытым описаниям и обзорам на октябрь 2026 года; сами продукты
+      не запускались. «Нет данных» — в описаниях не нашли. Нашли неточность — напишите в
+      <a href="https://github.com/iMironRU/emulkon/issues">Issues</a>, исправим. Названия продуктов принадлежат их
+      правообладателям.</p>
+  </div>
+</section>
+
+<section id="configs">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Проверено на конфигурациях 1С</h2>
+      <p class="lead">Сквозной прогон в каждой: подключение драйвера в БПО, тест устройств, чек, оплата, взвешивание.
+        <a href="https://github.com/iMironRU/emulkon/blob/main/tests/1c/RESULTS.md">Результаты прогонов</a>.</p>
+    </div>
+    <div class="configs">
+      <span>Розница 2.3</span><span>Розница 3.0</span><span>УНФ 3.0</span><span>РМК 1.1</span>
+      <span>УТ 10.3</span><span>УТ 11.5</span><span>УТ 11.6</span><span>КА 2.6</span>
+      <span>Бухгалтерия предприятия 3.0</span><span>БГУ 2.0</span>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="start">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Как начать</h2>
+      <p class="lead">Десять минут от скачивания до первого чека.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>Установите</h3>
+        <p>Скачайте <a href="https://github.com/iMironRU/emulkon/releases/latest">установщик</a> и запустите от
+          администратора. Он поставит службу, трей и драйвер и сам проверит, что всё работает.</p>
+      </div>
+      <div class="step">
+        <h3>Добавьте драйвер в 1С</h3>
+        <p>«Подключение и настройка оборудования» → «Драйверы оборудования» → «Добавить новый драйвер из файла»:
+          <code>Program Files\Emulkon\1C\driver</code>.</p>
+      </div>
+      <div class="step">
+        <h3>Подключите устройства</h3>
+        <p>Создайте экземпляры с драйвером «ЭМУЛЯТОР Эмулкон», нажмите «Тест устройства» — и пробивайте чек.
+          Инструкция — на странице загрузок сервера.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head"><h2>Вопросы</h2></div>
+    <details>
+      <summary>Это бесплатно?</summary>
+      <p>Да. Эмулкон распространяется с открытым исходным кодом по лицензии Apache-2.0 — его можно использовать, в том
+        числе в коммерческой разработке, и дорабатывать.</p>
+    </details>
+    <details>
+      <summary>Можно ли им пробить настоящий чек или провести настоящий платёж?</summary>
+      <p>Нет, и это сделано намеренно. Эмулкон — инструмент разработки и тестирования: «ЭМУЛЯТОР» в названии драйвера
+        и на документах, только тестовые данные, реальные номера карт и ПИН не принимаются.</p>
+    </details>
+    <details>
+      <summary>Нужно ли менять конфигурацию 1С?</summary>
+      <p>Нет. Эмулкон подключается в БПО как обычный драйвер из файла — так же, как драйвер настоящего оборудования.</p>
+    </details>
+    <details>
+      <summary>Как подключить несколько касс?</summary>
+      <p>Поставьте Эмулкон на один компьютер и включите «Сервер для касс в сети» в консоли («Служба → Свойства»), там же
+        выдайте токены. На кассах в параметрах драйвера укажите адрес сервера; установщик там не обязателен — драйвер
+        можно скачать со страницы загрузок сервера.</p>
+    </details>
+    <details>
+      <summary>Работает ли на Linux?</summary>
+      <p>Сервер — да, в том числе в Docker. Драйвер для 1С пока только под Windows (x64 и x86).</p>
+    </details>
+    <details>
+      <summary>Windows предупреждает о неизвестном издателе</summary>
+      <p>Подписи кода пока нет. Проверьте установщик по <code>SHA256SUMS</code> из релиза и выберите «Подробнее» →
+        «Выполнить в любом случае».</p>
+    </details>
+    <details>
+      <summary>Нашёл ошибку или не хватает устройства</summary>
+      <p>Напишите в <a href="https://github.com/iMironRU/emulkon/issues">Issues</a>: для ошибки приложите выгрузку
+        журнала, для нового поведения — ссылку на требования БПО.</p>
+    </details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      © 2026 iMironRU · <a href="https://github.com/iMironRU/emulkon/blob/main/LICENSE">Apache-2.0</a><br>
+      «1С», «1С:Предприятие» и названия конфигураций — товарные знаки ООО «1С». Эмулкон с 1С не связан.
+    </div>
+    <nav>
+      <a href="https://github.com/iMironRU/emulkon">GitHub</a>
+      <a href="https://github.com/iMironRU/emulkon/releases">Релизы</a>
+      <a href="https://github.com/iMironRU/emulkon/blob/main/CHANGELOG.md">История версий</a>
+      <a href="https://github.com/iMironRU/emulkon/issues">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  // Кнопка «Скачать» — прямо на установщик последнего релиза; без сети или JS — на страницу релиза.
+  fetch('https://api.github.com/repos/iMironRU/emulkon/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (rel) {
+      if (!rel || !rel.assets) return;
+      var setup = rel.assets.find(function (a) { return /^EmulkonSetup_.*\.exe$/.test(a.name); });
+      if (!setup) return;
+      document.getElementById('download').href = setup.browser_download_url;
+      document.getElementById('download-text').textContent = 'Скачать ' + rel.tag_name.replace(/^v/, '') + ' для Windows';
+    })
+    .catch(function () { /* остаётся ссылка на релизы */ });
+</script>
+</body>
+</html>
