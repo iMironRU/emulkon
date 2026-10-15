@@ -3,7 +3,8 @@
 # Секрета нет (pull request из форка) — HAVE_ONEC_SDK=0: собираются сервер, трей и консоль, без драйвера.
 #
 # Подготовить секрет (локально, из каталога include SDK):
-#   Compress-Archive <include>\* sdk.zip; [Convert]::ToBase64String([IO.File]::ReadAllBytes("sdk.zip")) | gh secret set ONEC_SDK_B64
+#   Compress-Archive <include>\* sdk.zip
+#   gh secret set ONEC_SDK_B64 --body ([Convert]::ToBase64String([IO.File]::ReadAllBytes("sdk.zip")))
 
 param([switch]$Required)
 
@@ -16,7 +17,9 @@ if (-not $env:ONEC_SDK_B64) {
 }
 $dir = Join-Path $env:RUNNER_TEMP "onec-sdk"
 $zip = Join-Path $env:RUNNER_TEMP "onec-sdk.zip"
-[IO.File]::WriteAllBytes($zip, [Convert]::FromBase64String($env:ONEC_SDK_B64))
+# Только символы base64: при записи секрета через конвейер PowerShell 5.1 в него попадают BOM и переводы строк.
+$b64 = $env:ONEC_SDK_B64 -replace '[^A-Za-z0-9+/=]', ''
+[IO.File]::WriteAllBytes($zip, [Convert]::FromBase64String($b64))
 Expand-Archive $zip $dir -Force
 Remove-Item $zip
 $include = (Get-ChildItem $dir -Recurse -Filter ComponentBase.h | Select-Object -First 1).DirectoryName
