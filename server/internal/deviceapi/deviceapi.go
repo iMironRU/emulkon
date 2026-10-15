@@ -54,9 +54,9 @@ type Config struct {
 	IdempotencyTTL time.Duration // 0 — 15 минут
 	IdempotencyMax int           // 0 — 10000 ответов
 	Now            func() time.Time
-	// LatestDriver — самая новая DLL драйвера для архитектуры (каталог загрузок);
+	// LatestDriver — самая новая DLL драйвера для ОС (пусто — Windows) и архитектуры (каталог загрузок);
 	// nil — обновления драйвера не предлагаются.
-	LatestDriver func(arch string) (downloads.File, bool)
+	LatestDriver func(osName, arch string) (downloads.File, bool)
 	// Scenarios — правила сбоев (ARCHITECTURE §7); nil — без сценариев.
 	Scenarios *scenarios.Engine
 }
@@ -171,6 +171,7 @@ func (a *API) openSession(w http.ResponseWriter, r *http.Request) {
 		"equipment_type":     req.EquipmentType,
 		"driver_version":     req.DriverVersion,
 		"driver_arch":        req.DriverArch,
+		"driver_os":          req.DriverOS,
 		"interface_revision": req.InterfaceRevision,
 		"remote_addr":        r.RemoteAddr,
 	}
@@ -204,7 +205,7 @@ func (a *API) openSession(w http.ResponseWriter, r *http.Request) {
 		Limits: Limits{DefaultTimeoutMS: a.cfg.DefaultTimeout.Milliseconds()},
 	}
 	if a.cfg.LatestDriver != nil && req.DriverArch != "" {
-		if f, ok := a.cfg.LatestDriver(req.DriverArch); ok && downloads.Compare(f.Version, req.DriverVersion) > 0 {
+		if f, ok := a.cfg.LatestDriver(req.DriverOS, req.DriverArch); ok && downloads.Compare(f.Version, req.DriverVersion) > 0 {
 			resp.DriverUpdate = &f
 			payload["driver_update"] = f.Version
 		}

@@ -1,4 +1,4 @@
-# Компонента-драйвер Эмулкон (Native API). Сборка — component/build.ps1 (Windows, clang-cl).
+# Компонента-драйвер Эмулкон (Native API). Сборка — component/build.ps1 (Windows, clang-cl), Linux — CMake + GCC/Clang.
 cmake_minimum_required(VERSION 3.20)
 # Версия продукта — одна на сервер, драйвер, трей и установщик: файл VERSION в корне.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" EMULKON_PRODUCT_VERSION LIMIT_COUNT 1)
@@ -42,13 +42,19 @@ add_library(emulkon_core STATIC
   src/events.cpp
   src/update.cpp)
 if(WIN32)
-  target_sources(emulkon_core PRIVATE src/http_winhttp.cpp src/update_win.cpp)
+  target_sources(emulkon_core PRIVATE src/http_winhttp.cpp src/platform_win.cpp)
   target_link_libraries(emulkon_core PUBLIC winhttp)
+  set(EMULKON_DLL_FILE "${EMULKON_DLL_NAME}.dll")
 else()
-  message(FATAL_ERROR "Linux: HTTP-транспорт компоненты ещё не реализован (TODO: libcurl, ARCHITECTURE §4.1)")
+  # Linux: HTTP на сокетах и файлы POSIX — без внешних зависимостей (ARCHITECTURE §4.1).
+  target_sources(emulkon_core PRIVATE src/http_posix.cpp src/platform_posix.cpp)
+  find_package(Threads REQUIRED)
+  target_link_libraries(emulkon_core PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+  set_target_properties(emulkon_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set(EMULKON_DLL_FILE "${EMULKON_DLL_NAME}.so")
 endif()
 target_include_directories(emulkon_core PUBLIC src "${ONEC_SDK}")
-target_compile_definitions(emulkon_core PUBLIC EMULKON_VERSION="${PROJECT_VERSION}" EMULKON_DLL_FILE="${EMULKON_DLL_NAME}.dll")
+target_compile_definitions(emulkon_core PUBLIC EMULKON_VERSION="${PROJECT_VERSION}" EMULKON_DLL_FILE="${EMULKON_DLL_FILE}")
 if(WIN32)
   # _WINDOWS обязателен: по нему SDK включает windows.h и ADDIN_API = __stdcall (важно для x86).
   target_compile_definitions(emulkon_core PUBLIC _WINDOWS UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
@@ -65,7 +71,10 @@ if(WIN32)
   configure_file(src/emulkon.rc.in "${CMAKE_CURRENT_BINARY_DIR}/emulkon.rc" @ONLY)
   target_sources(EmulkonDriver PRIVATE src/emulkon.def "${CMAKE_CURRENT_BINARY_DIR}/emulkon.rc")
 else()
-  target_link_options(EmulkonDriver PRIVATE "-Wl,--no-undefined" "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/version.script")
+  # Наружу — только экспорты Native API (version.script); libstdc++ и libgcc — внутри .so: на кассе
+  # может быть другой дистрибутив, а у платформы 1С — своя libstdc++.
+  target_link_options(EmulkonDriver PRIVATE "-Wl,--no-undefined" "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/version.script"
+    -static-libstdc++ -static-libgcc)
 endif()
 
 # --- тесты ---
@@ -74,20 +83,17 @@ add_executable(unit_tests tests/unit.cpp)
 target_link_libraries(unit_tests PRIVATE emulkon_core)
 add_test(NAME unit COMMAND unit_tests)
 
-if(WIN32)
-  # Стенд «как платформа 1С»: грузит DLL и вызывает методы через vtable.
-  add_executable(harness tests/harness.cpp)
-  target_include_directories(harness PRIVATE "${ONEC_SDK}")
-  target_link_libraries(harness PRIVATE winhttp)
-  target_compile_definitions(harness PRIVATE _WINDOWS UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-  if(MSVC)
-    target_compile_options(harness PRIVATE /utf-8 /EHsc)
-  endif()
-  add_test(NAME harness_offline COMMAND harness "$<TARGET_FILE:EmulkonDriver>")
-  add_test(NAME harness_update_redirect COMMAND harness --redirect "$<TARGET_FILE:EmulkonDriver>" "${CMAKE_CURRENT_BINARY_DIR}/update-cache-on" 1)
-  add_test(NAME harness_update_disabled COMMAND harness --redirect "$<TARGET_FILE:EmulkonDriver>" "${CMAKE_CURRENT_BINARY_DIR}/update-cache-off" 0)
-  set_tests_properties(harness_update_disabled PROPERTIES ENVIRONMENT "EMULKON_DRIVER_NO_UPDATE=1")
-  if(DEFINED ENV{EMULKON_TEST_SERVER})
-    add_test(NAME harness_server COMMAND harness "$<TARGET_FILE:EmulkonDriver>" "$ENV{EMULKON_TEST_SERVER}")
-  endif()
+# Стенд «как платформа 1С»: грузит драйвер (LoadLibrary / dlopen) и вызывает методы через vtable.
+# HTTP к Control API и окружение — из ядра компоненты.
+add_executable(harness tests/harness.cpp)
+target_link_libraries(harness PRIVATE emulkon_core ${CMAKE_DL_LIBS})
+if(MSVC)
+  target_compile_options(harness PRIVATE /utf-8 /EHsc)
+endif()
+add_test(NAME harness_offline COMMAND harness "$<TARGET_FILE:EmulkonDriver>")
+add_test(NAME harness_update_redirect COMMAND harness --redirect "$<TARGET_FILE:EmulkonDriver>" "${CMAKE_CURRENT_BINARY_DIR}/update-cache-on" 1)
+add_test(NAME harness_update_disabled COMMAND harness --redirect "$<TARGET_FILE:EmulkonDriver>" "${CMAKE_CURRENT_BINARY_DIR}/update-cache-off" 0)
+set_tests_properties(harness_update_disabled PROPERTIES ENVIRONMENT "EMULKON_DRIVER_NO_UPDATE=1")
+if(DEFINED ENV{EMULKON_TEST_SERVER})
+  add_test(NAME harness_server COMMAND harness "$<TARGET_FILE:EmulkonDriver>" "$ENV{EMULKON_TEST_SERVER}")
 endif()

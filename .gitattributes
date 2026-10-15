@@ -1,6 +1,7 @@
 * text=auto
 
 *.ps1 text eol=crlf
+*.sh text eol=lf
 tests/1c/src/** text eol=crlf
 
 *.png binary

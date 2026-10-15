@@ -12,6 +12,7 @@
 /tray/dist/
 /console/dist/
 /dist/
+/dist-linux/
 
 # прогоны в 1С: собранная обработка, отчёты, снимки окон
 /tests/1c/build/

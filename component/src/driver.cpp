@@ -13,6 +13,7 @@
 #endif
 
 #include "methods.h"
+#include "platform.h"
 #include "text.h"
 #include "update.h"
 
@@ -43,7 +44,19 @@ std::string infobaseOfProcess() {
     const wchar_t* cmd = GetCommandLineW();
     return cmd ? infobaseFromCommandLine(utf16to8(reinterpret_cast<const char16_t*>(cmd))) : std::string();
 #else
-    return std::string();
+    // /proc/self/cmdline — аргументы через \0; собираем строку, аргументы с пробелами — в кавычках.
+    std::string raw, cmd;
+    if (!sys::readFile("/proc/self/cmdline", raw)) return std::string();
+    size_t start = 0;
+    while (start < raw.size()) {
+        size_t end = raw.find('\0', start);
+        if (end == std::string::npos) end = raw.size();
+        std::string arg = raw.substr(start, end - start);
+        if (!cmd.empty()) cmd += ' ';
+        cmd += arg.find(' ') != std::string::npos ? "\"" + arg + "\"" : arg;
+        start = end + 1;
+    }
+    return infobaseFromCommandLine(cmd);
 #endif
 }
 

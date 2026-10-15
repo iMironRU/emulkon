@@ -45,6 +45,11 @@ target_compile_definitions(setup_core PUBLIC EMULKON_VERSION="${PROJECT_VERSION}
 target_compile_options(setup_core PUBLIC /utf-8 /EHsc /W3)
 target_link_libraries(setup_core PUBLIC winhttp shell32 ole32 advapi32 iphlpapi ws2_32 user32)
 
+# Драйвер Linux — в установщике, только если собран (CI): строка ресурса подставляется в setup.rc.
+set(LINUX_DRIVER_RC "")
+if(EXISTS "${PAYLOAD_DIR}/EmulkonDriver_${PROJECT_VERSION}_lin64.so")
+  set(LINUX_DRIVER_RC "LINUX64 RCDATA \"${PAYLOAD_DIR}/EmulkonDriver_${PROJECT_VERSION}_lin64.so\"")
+endif()
 configure_file(src/setup.rc.in "${CMAKE_CURRENT_BINARY_DIR}/setup.rc" @ONLY)
 add_executable(EmulkonSetup WIN32 src/main.cpp "${CMAKE_CURRENT_BINARY_DIR}/setup.rc")
 target_link_libraries(EmulkonSetup PRIVATE setup_core comctl32 gdi32 uuid)

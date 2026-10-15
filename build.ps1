@@ -14,7 +14,9 @@
 # Версия — файл VERSION. Сохранять в UTF-8 with BOM.
 
 param(
-    [string]$Server = ""
+    [string]$Server = "",
+    # Драйвер Linux (libEmulkonDriver_lin64.so) — собирается на Linux (CI); попадает в пакет, загрузки и установщик.
+    [string]$LinuxDriver = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,11 +50,15 @@ try {
 } finally { Pop-Location }
 
 Write-Host "== драйвер" -ForegroundColor Cyan
-& (Join-Path $root "component\build.ps1") -Server $Server
+& (Join-Path $root "component\build.ps1") -Server $Server -LinuxDriver $LinuxDriver
 $cbuild = Join-Path $env:LOCALAPPDATA "emulkon-build"
 Copy-Item -LiteralPath (Join-Path $root "component\dist\EmulkonDriver_$version.zip") $downloads -Force
 Copy-Item -LiteralPath (Join-Path $cbuild "x64\EmulkonDriver_win64.dll") (Join-Path $downloads "EmulkonDriver_${version}_win64.dll") -Force
 Copy-Item -LiteralPath (Join-Path $cbuild "x86\EmulkonDriver_win32.dll") (Join-Path $downloads "EmulkonDriver_${version}_win32.dll") -Force
+if ($LinuxDriver) {
+    # Драйвер Linux для самообновления на кассах с Linux (docs/protocol.md §1.5).
+    Copy-Item -LiteralPath $LinuxDriver (Join-Path $downloads "EmulkonDriver_${version}_lin64.so") -Force
+}
 
 Write-Host "== трей" -ForegroundColor Cyan
 & (Join-Path $root "tray\build.ps1")

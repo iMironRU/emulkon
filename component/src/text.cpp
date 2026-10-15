@@ -275,9 +275,9 @@ std::string infobaseFromCommandLine(const std::string& commandLine) {
             std::string v = value(7);
             if (!v.empty()) return v;
         } else if (key.rfind("/F", 0) == 0) {
-            // У /F — путь: отличаем от других ключей на F по «:» или «\».
+            // У /F — путь: отличаем от других ключей на F по «:» или «\» (Windows) или по «/» в начале (Linux).
             std::string v = value(2);
-            if (v.find_first_of(":\\") != std::string::npos) return v;
+            if (v.find_first_of(":\\") != std::string::npos || (v.size() > 1 && v[0] == '/')) return v;
         } else if (key.rfind("/S", 0) == 0) {
             // /S"сервер\база"; ключи вроде /SAOnRestart разделителя не содержат.
             std::string v = value(2);

@@ -1,6 +1,7 @@
 name: Релиз
 
-# Тег vX.Y.Z (совпадает с файлом VERSION) — полная сборка с тестами и релиз GitHub: установщик, пакет драйвера,
+# Тег vX.Y.Z (совпадает с файлом VERSION) — полная сборка с тестами (драйвер Linux — на Linux) и релиз GitHub:
+# установщик, пакет драйвера (Windows и Linux),
 # DLL драйвера для самообновления и SHA256SUMS. Описание — раздел версии из CHANGELOG.md.
 on:
   push:
@@ -10,11 +11,47 @@ permissions:
   contents: write
 
 jobs:
+  linux-driver:
+    name: Linux — драйвер (.so)
+    runs-on: ubuntu-latest
+    # Debian 11 (glibc 2.31): собранная здесь библиотека работает и на дистрибутивах постарше.
+    container: debian:bullseye
+    steps:
+      - name: Инструменты сборки
+        run: |
+          echo "deb http://deb.debian.org/debian bullseye-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends g++ ninja-build unzip curl ca-certificates git binutils > /dev/null
+          apt-get install -y -qq --no-install-recommends -t bullseye-backports cmake > /dev/null
+          cmake --version | head -n 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: Сборка и тесты
+        env:
+          ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
+        run: bash .github/scripts/linux-driver.sh
+      - name: Драйвер Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-driver
+          path: dist-linux/
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Сборка и релиз
     runs-on: windows-2022
+    needs: linux-driver
     steps:
       - uses: actions/checkout@v4
+      - name: Драйвер Linux из задачи linux-driver
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-driver
+          path: dist-linux
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -35,12 +72,12 @@ jobs:
         run: .github/scripts/onec-sdk.ps1 -Required
       - name: Сборка и тесты
         shell: powershell
-        run: .\build.ps1
+        run: .\build.ps1 -LinuxDriver dist-linux\libEmulkonDriver_lin64.so
       - name: Файлы релиза и SHA256SUMS
         shell: pwsh
         run: |
           $v = $env:VERSION
-          $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll"
+          $files = "EmulkonSetup_$v.exe", "EmulkonDriver_$v.zip", "EmulkonDriver_${v}_win64.dll", "EmulkonDriver_${v}_win32.dll", "EmulkonDriver_${v}_lin64.so"
           New-Item -ItemType Directory -Force release | Out-Null
           foreach ($f in $files) { Copy-Item (Join-Path dist/downloads $f) release }
           Push-Location release

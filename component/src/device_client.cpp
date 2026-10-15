@@ -92,6 +92,7 @@ bool DeviceClient::open(std::string& message) {
     req.set("equipment_type", Json::string(equipmentType_));
     req.set("driver_version", Json::string(driverVersion_));
     req.set("driver_arch", Json::string(driverArch()));
+    req.set("driver_os", Json::string(driverOS()));
     req.set("interface_revision", Json::number(static_cast<int64_t>(interfaceRevision_)));
     if (!ep_.instanceId.empty()) req.set("instance_id", Json::string(ep_.instanceId));
     if (!ep_.instanceName.empty()) req.set("instance_name", Json::string(ep_.instanceName));

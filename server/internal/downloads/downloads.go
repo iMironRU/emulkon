@@ -31,8 +31,9 @@ import (
 // Имена файлов в каталоге загрузок.
 var (
 	rePackage = regexp.MustCompile(`^EmulkonDriver_(\d+\.\d+\.\d+)\.zip$`)
-	reDLL     = regexp.MustCompile(`^EmulkonDriver_(\d+\.\d+\.\d+)_win(32|64)\.dll$`)
-	reSetup   = regexp.MustCompile(`^EmulkonSetup_(\d+\.\d+\.\d+)\.exe$`)
+	// DLL драйвера для самообновления: Windows — _win64.dll, _win32.dll; Linux — _lin64.so, _lin32.so.
+	reDLL   = regexp.MustCompile(`^EmulkonDriver_(\d+\.\d+\.\d+)_(?:win(32|64)\.dll|lin(32|64)\.so)$`)
+	reSetup = regexp.MustCompile(`^EmulkonSetup_(\d+\.\d+\.\d+)\.exe$`)
 )
 
 // Архитектуры DLL драйвера — как в MANIFEST.XML пакета (component/build.ps1).
@@ -41,12 +42,20 @@ const (
 	ArchX86 = "i386"
 )
 
+// ОС драйвера: в имени файла (_win…dll, _lin…so) и в запросе обновления. Без ОС — Windows: так
+// спрашивают драйверы до 0.9.0.
+const (
+	OSWindows = "windows"
+	OSLinux   = "linux"
+)
+
 // File — файл дистрибутива.
 type File struct {
 	Name     string    `json:"name"`
 	URL      string    `json:"url"` // путь на этом сервере: /downloads/<name>
 	Version  string    `json:"version"`
 	Arch     string    `json:"arch,omitempty"` // для DLL драйвера: x86_64 | i386
+	OS       string    `json:"os,omitempty"`   // для DLL драйвера: windows | linux
 	Size     int64     `json:"size"`
 	SHA256   string    `json:"sha256"`
 	Modified time.Time `json:"modified"`
@@ -237,7 +246,7 @@ func (h *Handler) Catalog() (Catalog, error) {
 	if err != nil {
 		return c, err
 	}
-	dlls := map[string]File{} // архитектура → самая новая
+	dlls := map[string]File{} // ОС и архитектура → самая новая
 	for _, f := range files {
 		switch {
 		case rePackage.MatchString(f.Name):
@@ -245,8 +254,8 @@ func (h *Handler) Catalog() (Catalog, error) {
 				c.DriverPackage = &f
 			}
 		case reDLL.MatchString(f.Name):
-			if cur, ok := dlls[f.Arch]; !ok || Compare(f.Version, cur.Version) > 0 {
-				dlls[f.Arch] = f
+			if cur, ok := dlls[f.OS+"/"+f.Arch]; !ok || Compare(f.Version, cur.Version) > 0 {
+				dlls[f.OS+"/"+f.Arch] = f
 			}
 		case reSetup.MatchString(f.Name):
 			if c.Setup == nil || Compare(f.Version, c.Setup.Version) > 0 {
@@ -254,9 +263,11 @@ func (h *Handler) Catalog() (Catalog, error) {
 			}
 		}
 	}
-	for _, a := range []string{ArchX64, ArchX86} {
-		if f, ok := dlls[a]; ok {
-			c.DriverDLLs = append(c.DriverDLLs, f)
+	for _, o := range []string{OSWindows, OSLinux} {
+		for _, a := range []string{ArchX64, ArchX86} {
+			if f, ok := dlls[o+"/"+a]; ok {
+				c.DriverDLLs = append(c.DriverDLLs, f)
+			}
 		}
 	}
 	c.Published = len(files) > 0
@@ -297,14 +308,17 @@ func fileExists(p string) bool {
 	return err == nil && !st.IsDir()
 }
 
-// LatestDriver — самая новая DLL драйвера для архитектуры; ok=false — нет.
-func (h *Handler) LatestDriver(arch string) (File, bool) {
+// LatestDriver — самая новая DLL драйвера для ОС (пусто — Windows) и архитектуры; ok=false — нет.
+func (h *Handler) LatestDriver(osName, arch string) (File, bool) {
+	if osName == "" {
+		osName = OSWindows
+	}
 	c, err := h.Catalog()
 	if err != nil {
 		return File{}, false
 	}
 	for _, f := range c.DriverDLLs {
-		if f.Arch == arch {
+		if f.OS == osName && f.Arch == arch {
 			return f, true
 		}
 	}
@@ -334,8 +348,12 @@ func (h *Handler) scan() ([]File, error) {
 				f.Version = rePackage.FindStringSubmatch(f.Name)[1]
 			case reDLL.MatchString(f.Name):
 				m := reDLL.FindStringSubmatch(f.Name)
-				f.Version, f.Arch = m[1], ArchX86
-				if m[2] == "64" {
+				f.Version, f.OS, f.Arch = m[1], OSWindows, ArchX86
+				bits := m[2]
+				if m[3] != "" {
+					f.OS, bits = OSLinux, m[3]
+				}
+				if bits == "64" {
 					f.Arch = ArchX64
 				}
 			case reSetup.MatchString(f.Name):
@@ -390,10 +408,15 @@ func (h *Handler) catalog(w http.ResponseWriter, _ *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, c)
 }
 
-// update отвечает драйверу, есть ли DLL новее: ?version=0.2.0&arch=x86_64.
+// update отвечает драйверу, есть ли DLL новее: ?version=0.2.0&arch=x86_64[&os=linux].
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	cur := r.URL.Query().Get("version")
 	arch := r.URL.Query().Get("arch")
+	osName := r.URL.Query().Get("os")
+	if osName != "" && osName != OSWindows && osName != OSLinux {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "os: ожидается windows или linux")
+		return
+	}
 	if _, err := Parse(cur); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "version: "+err.Error())
 		return
@@ -403,7 +426,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := UpdateResponse{Current: cur}
-	if f, ok := h.LatestDriver(arch); ok {
+	if f, ok := h.LatestDriver(osName, arch); ok {
 		resp.Latest = &f
 		resp.UpdateAvailable = Compare(f.Version, cur) > 0
 	}

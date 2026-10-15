@@ -135,6 +135,38 @@ func TestDriverUpdate(t *testing.T) {
 	if code := getJSON(t, srv.URL+"/api/v1/driver/update?version=x&arch=x86_64", &e); code != 400 {
 		t.Fatalf("неверная версия: %d", code)
 	}
+	if code := getJSON(t, srv.URL+"/api/v1/driver/update?version=0.2.0&arch=x86_64&os=macos", &e); code != 400 {
+		t.Fatalf("неизвестная ОС: %d", code)
+	}
+}
+
+// Linux-драйвер (.so) — отдельно от Windows: драйвер под Linux не получает DLL и наоборот.
+func TestDriverUpdateLinux(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "EmulkonDriver_0.3.0_win64.dll", "win 64")
+	sumLin := writeFile(t, dir, "EmulkonDriver_0.4.0_lin64.so", "lin 64")
+	writeFile(t, dir, "EmulkonDriver_0.4.0_lin64.dll", "не тот суффикс — не раздаётся")
+	h, _, srv := newHandler(t, dir)
+
+	var u UpdateResponse
+	getJSON(t, srv.URL+"/api/v1/driver/update?version=0.2.0&arch=x86_64&os=linux", &u)
+	if !u.UpdateAvailable || u.Latest == nil || u.Latest.Version != "0.4.0" || u.Latest.OS != OSLinux ||
+		u.Latest.SHA256 != sumLin || u.Latest.Name != "EmulkonDriver_0.4.0_lin64.so" {
+		t.Fatalf("обновление Linux x64: %+v", u)
+	}
+	u = UpdateResponse{}
+	getJSON(t, srv.URL+"/api/v1/driver/update?version=0.2.0&arch=x86_64", &u)
+	if u.Latest == nil || u.Latest.Version != "0.3.0" || u.Latest.OS != OSWindows {
+		t.Fatalf("без os — Windows, как у драйверов до 0.9.0: %+v", u)
+	}
+	if f, ok := h.LatestDriver(OSLinux, ArchX86); ok {
+		t.Fatalf("Linux x86 не опубликован: %+v", f)
+	}
+	var c Catalog
+	getJSON(t, srv.URL+"/api/v1/downloads", &c)
+	if len(c.DriverDLLs) != 2 || c.DriverDLLs[0].OS != OSWindows || c.DriverDLLs[1].OS != OSLinux {
+		t.Fatalf("каталог: сначала Windows, потом Linux: %+v", c.DriverDLLs)
+	}
 }
 
 func TestFileDownloadIsJournaled(t *testing.T) {

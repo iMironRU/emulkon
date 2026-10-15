@@ -2,7 +2,8 @@
 //
 // Сервер предлагает DLL драйвера новее (driver_update в ответе на открытие сессии или
 // GET /api/v1/driver/update). Драйвер скачивает её в кэш пользователя с проверкой SHA-256:
-//   %LOCALAPPDATA%\Emulkon\driver\<версия>\EmulkonDriver_win64.dll (win32 — для x86).
+//   %LOCALAPPDATA%\Emulkon\driver\<версия>\EmulkonDriver_win64.dll (win32 — для x86);
+//   Linux — $XDG_CACHE_HOME/emulkon/driver/<версия>/libEmulkonDriver_lin64.so (по умолчанию ~/.cache).
 // При следующей загрузке компоненты экспорты переадресуются в самую новую DLL из кэша
 // (exports.cpp) — переустанавливать драйвер в БПО не нужно. Работающую DLL не трогаем:
 // новая версия начинает работать после перезапуска 1С.
@@ -43,18 +44,20 @@ UpdateOffer parseUpdateOffer(const Json* j);
 
 // driverArch — архитектура сборки в терминах MANIFEST.XML: x86_64 или i386.
 const char* driverArch();
+// driverOS — ОС сборки для сервера обновлений: windows или linux.
+const char* driverOS();
 
 // newerVersions — имена каталогов кэша, которые являются версиями новее own, от новой к старой.
 std::vector<std::string> newerVersions(const std::vector<std::string>& names, const std::string& own);
 
-// --- кэш обновлений (update_win.cpp) ---
+// --- кэш обновлений (пути — UTF-8) ---
 
-// updateCacheRoot — %EMULKON_DRIVER_CACHE% (тесты) или %LOCALAPPDATA%\Emulkon\driver.
-std::wstring updateCacheRoot();
+// updateCacheRoot — EMULKON_DRIVER_CACHE (тесты) или каталог пользователя (sys::defaultCacheRoot).
+std::string updateCacheRoot();
 
-// cachedVersions — версии в кэше, для которых есть DLL этой архитектуры.
+// cachedVersions — версии в кэше, для которых есть драйвер этой ОС и архитектуры.
 std::vector<std::string> cachedVersions();
-std::wstring cachedDllPath(const std::string& version);
+std::string cachedDllPath(const std::string& version);
 
 // redirectDisabled — EMULKON_DRIVER_NO_UPDATE=1: не переходить на DLL из кэша.
 bool redirectDisabled();

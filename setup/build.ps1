@@ -45,6 +45,9 @@ foreach ($f in $files) {
     if (-not (Test-Path -LiteralPath $f)) { throw "Нет файла для установщика: $f (сначала build.ps1 в корне)" }
     Copy-Item -LiteralPath $f $payload
 }
+# Драйвер Linux — если собран (CI): сервер на этой машине раздаст его кассам с Linux.
+$linux = Join-Path $Dist "downloads\EmulkonDriver_${version}_lin64.so"
+if (Test-Path -LiteralPath $linux) { Copy-Item -LiteralPath $linux $payload }
 
 Invoke-Step "cmake configure" { cmake -S $src -B $bin -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=$env:DEV_CMAKE_TOOLCHAINS\clang-cl-x64.cmake" "-DPAYLOAD_DIR=$($payload -replace '\\','/')" }
 # Ресурсы с полезной нагрузкой пересобираем всегда: ninja не следит за файлами из RCDATA.

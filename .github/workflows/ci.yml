@@ -39,11 +39,48 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  linux-driver:
+    name: Linux — драйвер (.so)
+    runs-on: ubuntu-latest
+    # Debian 11 (glibc 2.31): собранная здесь библиотека работает и на дистрибутивах постарше.
+    container: debian:bullseye
+    steps:
+      - name: Инструменты сборки
+        run: |
+          echo "deb http://deb.debian.org/debian bullseye-backports main" > /etc/apt/sources.list.d/backports.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends g++ ninja-build unzip curl ca-certificates git binutils > /dev/null
+          apt-get install -y -qq --no-install-recommends -t bullseye-backports cmake > /dev/null
+          cmake --version | head -n 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.mod
+      - name: Сборка и тесты
+        env:
+          ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
+        run: bash .github/scripts/linux-driver.sh
+      - name: Драйвер Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-driver
+          path: dist-linux/
+          if-no-files-found: ignore
+          retention-days: 14
+
   windows:
     name: Windows — драйвер, трей, консоль, установщик
     runs-on: windows-2022
+    needs: linux-driver  # драйвер Linux — в общий пакет и установщик
     steps:
       - uses: actions/checkout@v4
+      - name: Драйвер Linux из задачи linux-driver
+        uses: actions/download-artifact@v4
+        continue-on-error: true  # нет SDK 1С (pull request из форка) — пакета Linux нет
+        with:
+          name: linux-driver
+          path: dist-linux
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -59,7 +96,9 @@ jobs:
       - name: Сборка и тесты — всё
         if: env.HAVE_ONEC_SDK == '1'
         shell: powershell
-        run: .\build.ps1
+        run: |
+          $so = "dist-linux\libEmulkonDriver_lin64.so"
+          if (Test-Path $so) { .\build.ps1 -LinuxDriver $so } else { .\build.ps1 }
       - name: Сборка и тесты — без драйвера (нет SDK 1С)
         if: env.HAVE_ONEC_SDK != '1'
         shell: powershell

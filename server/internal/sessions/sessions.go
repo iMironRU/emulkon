@@ -67,6 +67,8 @@ type OpenRequest struct {
 	DriverVersion string `json:"driver_version"`
 	// DriverArch — архитектура DLL драйвера (x86_64, i386): по ней сервер предлагает обновление.
 	DriverArch string `json:"driver_arch,omitempty"`
+	// DriverOS — ОС драйвера (windows, linux); пусто — windows (драйверы до 0.9.0).
+	DriverOS string `json:"driver_os,omitempty"`
 	// InterfaceRevision — ревизия требований, которую реализует компонента (4008 = «4.8»).
 	InterfaceRevision int `json:"interface_revision"`
 	// Экземпляр «Подключаемого оборудования» в 1С (ARCHITECTURE §4.3): параметры драйвера

@@ -132,7 +132,7 @@ function render(c) {
   const dlls = (c.driver_dlls || []).map((f) =>
     el("tr", {},
       el("td", {}, el("a", { href: f.url, download: f.name, class: "mono" }, f.name)),
-      el("td", {}, f.arch), el("td", {}, f.version),
+      el("td", {}, (f.os === "linux" ? "Linux " : "Windows ") + f.arch), el("td", {}, f.version),
       el("td", { class: "num" }, size(f.size)),
       el("td", { class: "mono" }, f.sha256)));
   $("dll-body").replaceChildren(...(dlls.length ? dlls : [el("tr", {}, el("td", { colspan: "5", class: "muted" }, "нет файлов"))]));

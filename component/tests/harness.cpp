@@ -1,26 +1,33 @@
-// Стенд «как платформа 1С»: загружает DLL драйвера через LoadLibrary, создаёт объект
+// Стенд «как платформа 1С»: загружает драйвер (Windows — LoadLibrary, Linux — dlopen), создаёт объект
 // через GetClassObject и вызывает методы через vtable IComponentBase — так же, как 1С.
 // Проверяет ABI (порядок виртуальных методов, __stdcall на x86) и поведение драйвера.
 //
-//   harness <путь к DLL>                       — без сервера
-//   harness <путь к DLL> http://127.0.0.1:8737 — плюс сценарий ККТ на живом сервере
+//   harness <путь к драйверу>                       — без сервера
+//   harness <путь к драйверу> http://127.0.0.1:8737 — плюс сценарии на живом сервере
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
+#include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <string>
-#include <array>
+#include <filesystem>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
-
-#include <winhttp.h>
 
 #include "AddInDefBase.h"
 #include "ComponentBase.h"
 #include "IMemoryManager.h"
+#include "http.h"      // запросы к Control API — тем же клиентом, что у драйвера (ядро компоненты)
+#include "platform.h"  // окружение, временный каталог
+#include "text.h"
 
 namespace {
 
@@ -36,20 +43,42 @@ void check(bool ok, const std::string& what) {
     }
 }
 
-std::u16string u16(const std::string& s) {
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(n, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), &w[0], n);
-    return std::u16string(w.begin(), w.end());
-}
+std::u16string u16(const std::string& s) { return emu::utf8to16(s); }
 
-std::string u8(const char16_t* s, size_t n) {
-    std::wstring w(s, s + n);
-    int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
-    std::string out(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), &out[0], len, nullptr, nullptr);
-    return out;
+std::string u8(const char16_t* s, size_t n) { return emu::utf16to8(std::u16string(s, n)); }
+
+void pause(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+
+// Загрузка драйвера — как у платформы: Windows — LoadLibrary, Linux — dlopen.
+#ifdef _WIN32
+using Module = HMODULE;
+Module openModule(const std::string& path) {
+    std::u16string w = u16(path);
+    return LoadLibraryW(reinterpret_cast<LPCWSTR>(w.c_str()));
 }
+void closeModule(Module m) { FreeLibrary(m); }
+void* symbol(Module m, const char* name) { return reinterpret_cast<void*>(GetProcAddress(m, name)); }
+std::string loadError() { return "код " + std::to_string(GetLastError()); }
+// isLoaded — эта библиотека уже в процессе (переадресация экспортов в копию из кэша).
+bool isLoaded(const std::string& path) {
+    std::u16string w = u16(path);
+    return GetModuleHandleW(reinterpret_cast<LPCWSTR>(w.c_str())) != nullptr;
+}
+#else
+using Module = void*;
+Module openModule(const std::string& path) { return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL); }
+void closeModule(Module m) { dlclose(m); }
+void* symbol(Module m, const char* name) { return dlsym(m, name); }
+std::string loadError() {
+    const char* e = dlerror();
+    return e ? e : "неизвестная ошибка";
+}
+bool isLoaded(const std::string& path) {
+    Module m = dlopen(path.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    if (m) dlclose(m);
+    return m != nullptr;
+}
+#endif
 
 // --- «платформа» ---
 
@@ -99,7 +128,7 @@ public:
                     }
                 }
             }
-            Sleep(50);
+            pause(50);
         }
         return false;
     }
@@ -134,14 +163,14 @@ struct Result {
 
 class Component {
 public:
-    bool load(const std::wstring& path) {
-        dll_ = LoadLibraryW(path.c_str());
+    bool load(const std::string& path) {
+        dll_ = openModule(path);
         if (!dll_) return false;
-        getClassObject_ = reinterpret_cast<GetClassObjectPtr>(GetProcAddress(dll_, "GetClassObject"));
-        destroyObject_ = reinterpret_cast<DestroyObjectPtr>(GetProcAddress(dll_, "DestroyObject"));
-        getClassNames_ = reinterpret_cast<GetClassNamesPtr>(GetProcAddress(dll_, "GetClassNames"));
-        setCaps_ = reinterpret_cast<SetPlatformCapabilitiesPtr>(GetProcAddress(dll_, "SetPlatformCapabilities"));
-        attachType_ = reinterpret_cast<GetAttachTypePtr>(GetProcAddress(dll_, "GetAttachType"));
+        getClassObject_ = reinterpret_cast<GetClassObjectPtr>(symbol(dll_, "GetClassObject"));
+        destroyObject_ = reinterpret_cast<DestroyObjectPtr>(symbol(dll_, "DestroyObject"));
+        getClassNames_ = reinterpret_cast<GetClassNamesPtr>(symbol(dll_, "GetClassNames"));
+        setCaps_ = reinterpret_cast<SetPlatformCapabilitiesPtr>(symbol(dll_, "SetPlatformCapabilities"));
+        attachType_ = reinterpret_cast<GetAttachTypePtr>(symbol(dll_, "GetAttachType"));
         return getClassObject_ && destroyObject_ && getClassNames_ && setCaps_ && attachType_;
     }
 
@@ -159,7 +188,7 @@ public:
             obj_->Done();
             destroyObject_(&obj_);
         }
-        if (dll_) FreeLibrary(dll_);
+        if (dll_) closeModule(dll_);
     }
 
     IComponentBase* obj() { return obj_; }
@@ -233,7 +262,7 @@ private:
         return x;
     }
 
-    HMODULE dll_ = nullptr;
+    Module dll_ = nullptr;
     GetClassObjectPtr getClassObject_ = nullptr;
     DestroyObjectPtr destroyObject_ = nullptr;
     GetClassNamesPtr getClassNames_ = nullptr;
@@ -333,7 +362,7 @@ void offline(Component& c) {
 }
 
 // HTTP к Control API (определение ниже).
-std::string http(const wchar_t* verb, const std::string& url, const std::string& body, int* status);
+std::string http(const char* verb, const std::string& url, const std::string& body, int* status);
 
 void online(Component& c, const std::string& server) {
     char ws[64];
@@ -380,11 +409,11 @@ void online(Component& c, const std::string& server) {
     check(isFalse(r.ret) && lastError(c).find("ТС ПИоТ") != std::string::npos, "ПИоТ без поддержки ФН: " + lastError(c));
     {
         int status = 0;
-        std::string devs = http(L"GET", server + "/control/v1/devices", "", &status);
+        std::string devs = http("GET", server + "/control/v1/devices", "", &status);
         size_t at = devs.find(std::string("\"workstation_id\":\"") + ws + "\"");
         size_t from = at == std::string::npos ? at : devs.rfind("\"device_id\":\"", at);
         std::string dev = from == std::string::npos ? "" : devs.substr(from + 13, devs.find('"', from + 13) - from - 13);
-        http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"piot\":true}", &status);
+        http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"piot\":true}", &status);
         check(status == 200, "piot: true для " + dev);
     }
     r = c.call("ПодготовитьДанныеАутентификацииПИоТ", {Value::str(id), Value::str(challenge), Value::str("")});
@@ -412,44 +441,16 @@ void online(Component& c, const std::string& server) {
 // --- эквайринг на живом сервере ---
 
 // http — синхронный запрос к Control API: стенд отвечает на экране терминала, как трей.
-std::string http(const wchar_t* verb, const std::string& url, const std::string& body, int* status) {
-    *status = 0;
-    std::u16string u = u16(url);
-    std::wstring wurl(u.begin(), u.end());
-    URL_COMPONENTS uc{};
-    uc.dwStructSize = sizeof uc;
-    wchar_t host[256] = {}, path[2048] = {};
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = 256;
-    uc.lpszUrlPath = path;
-    uc.dwUrlPathLength = 2048;
-    uc.dwExtraInfoLength = static_cast<DWORD>(-1);
-    if (!WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) return {};
-    std::wstring object(path, uc.dwUrlPathLength);
-    if (uc.lpszExtraInfo) object.append(uc.lpszExtraInfo, uc.dwExtraInfoLength);
-    std::string out;
-    HINTERNET s = WinHttpOpen(L"Emulkon-Harness", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    HINTERNET c = s ? WinHttpConnect(s, host, uc.nPort, 0) : nullptr;
-    HINTERNET r = c ? WinHttpOpenRequest(c, verb, object.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0) : nullptr;
-    if (r && WinHttpSendRequest(r, L"Content-Type: application/json\r\n", static_cast<DWORD>(-1L),
-                                body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()),
-                                static_cast<DWORD>(body.size()), static_cast<DWORD>(body.size()), 0) &&
-        WinHttpReceiveResponse(r, nullptr)) {
-        DWORD code = 0, size = sizeof code;
-        WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &size,
-                            WINHTTP_NO_HEADER_INDEX);
-        *status = static_cast<int>(code);
-        for (DWORD avail = 0; WinHttpQueryDataAvailable(r, &avail) && avail;) {
-            std::string chunk(avail, '\0');
-            DWORD got = 0;
-            WinHttpReadData(r, &chunk[0], avail, &got);
-            out.append(chunk.data(), got);
-        }
-    }
-    if (r) WinHttpCloseHandle(r);
-    if (c) WinHttpCloseHandle(c);
-    if (s) WinHttpCloseHandle(s);
-    return out;
+std::string http(const char* verb, const std::string& url, const std::string& body, int* status) {
+    static std::unique_ptr<emu::HttpClient> client = emu::makeHttpClient("Emulkon-Harness");
+    const std::string v = verb;
+    emu::HttpResponse r = v == "POST"     ? client->post(url, body, {}, 30000)
+                          : v == "PUT"    ? client->put(url, body, {}, 30000)
+                          : v == "PATCH"  ? client->patch(url, body, {}, 30000)
+                          : v == "DELETE" ? client->remove(url, {}, 30000)
+                                          : client->get(url, {}, 30000);
+    *status = r.status;
+    return r.body;
 }
 
 // field — значение первого строкового поля "key":"…" в JSON или атрибута key="…" в XML.
@@ -483,13 +484,13 @@ void acquiring(Component& c, const std::string& server) {
     std::string promptId, deviceId;
     int status = 0;
     for (int i = 0; i < 100 && promptId.empty(); ++i) {
-        Sleep(100);
-        std::string j = http(L"GET", server + "/control/v1/journal?method=device.prompt&workstation_id=" + ws + "&limit=1", "", &status);
+        pause(100);
+        std::string j = http("GET", server + "/control/v1/journal?method=device.prompt&workstation_id=" + ws + "&limit=1", "", &status);
         promptId = field(j, "prompt_id");
         deviceId = field(j, "device_id");
     }
     check(!promptId.empty(), "экран терминала открыл запрос «приложите карту»");
-    std::string ans = http(L"POST", server + "/control/v1/devices/" + deviceId + "/prompt",
+    std::string ans = http("POST", server + "/control/v1/devices/" + deviceId + "/prompt",
                            "{\"prompt_id\":\"" + promptId + "\",\"action\":\"card\",\"card\":\"mastercard\"}", &status);
     check(status == 200, "ответ с экрана: HTTP " + std::to_string(status) + " " + ans);
     payer.join();
@@ -515,10 +516,10 @@ double number(const Value& v) { return v.kind == Value::Double ? v.d : v.kind ==
 std::string deviceOf(const std::string& server, const std::string& ws, const std::string& method) {
     int status = 0;
     for (int i = 0; i < 20; ++i) {
-        std::string j = http(L"GET", server + "/control/v1/journal?method=" + method + "&workstation_id=" + ws + "&limit=1", "", &status);
+        std::string j = http("GET", server + "/control/v1/journal?method=" + method + "&workstation_id=" + ws + "&limit=1", "", &status);
         std::string id = field(j, "device_id");
         if (!id.empty()) return id;
-        Sleep(100);
+        pause(100);
     }
     return {};
 }
@@ -541,7 +542,7 @@ void instances(Component& c, const std::string& server) {
     check(isTrue(a.ret) && isTrue(b.ret) && isTrue(copy.ret), "три экземпляра ККТ: " + lastError(c));
 
     int status = 0;
-    std::string j = http(L"GET", server + "/control/v1/devices", "", &status);
+    std::string j = http("GET", server + "/control/v1/devices", "", &status);
     auto deviceWith = [&](const std::string& id) {
         size_t p = j.find("\"instance_id\":\"" + id + "\"");
         if (p == std::string::npos) return std::string();
@@ -565,7 +566,7 @@ void workstationToken(Component& c, const std::string& server) {
     char ws[64];
     std::snprintf(ws, sizeof ws, "HARNESS-T-%lld", static_cast<long long>(std::time(nullptr)));
     int status = 0;
-    std::string tok = field(http(L"POST", server + "/control/v1/workstations/" + ws + "/token", "", &status), "token");
+    std::string tok = field(http("POST", server + "/control/v1/workstations/" + ws + "/token", "", &status), "token");
     check(status == 200 && tok.rfind("emk_ws_", 0) == 0, "выдача токена рабочему месту");
     auto cp = [&](const std::string& extra) {
         return "<Parameters><Parameter Name=\"ServerURL\" Value=\"" + server + "\"/>" + extra + "</Parameters>";
@@ -573,7 +574,7 @@ void workstationToken(Component& c, const std::string& server) {
     Result a = c.call("ПодключитьОборудование",
                       {Value::str(""), Value::str("BarcodeScanner"), Value::str(cp("<Parameter Name=\"DeviceToken\" Value=\"" + tok + "\"/>"))});
     check(isTrue(a.ret), "подключение по токену без рабочего места: " + lastError(c));
-    std::string j = http(L"GET", server + "/control/v1/journal?method=session.open&workstation_id=" + ws + "&limit=1", "", &status);
+    std::string j = http("GET", server + "/control/v1/journal?method=session.open&workstation_id=" + ws + "&limit=1", "", &status);
     check(j.find("\"auth\":\"workstation\"") != std::string::npos && j.find(tok) == std::string::npos,
           "место из токена, токен не в журнале: " + j.substr(0, 300));
     Result b = c.call("ПодключитьОборудование",
@@ -587,10 +588,10 @@ void workstationToken(Component& c, const std::string& server) {
                                                   Value::str(""), Value::str("")});
     check(isTrue(t.ret), "тест устройства по токену: " + lastError(c));
     c.call("ОтключитьОборудование", {Value::str(a.params[0].s)});
-    std::string sess = http(L"GET", server + "/control/v1/sessions", "", &status);
+    std::string sess = http("GET", server + "/control/v1/sessions", "", &status);
     check(status == 200 && sess.find(std::string("\"workstation_id\":\"") + ws + "\"") == std::string::npos,
           "после теста и отключения сессий места нет: " + sess.substr(0, 300));
-    http(L"DELETE", server + "/control/v1/workstations/" + ws + "/token", "", &status);
+    http("DELETE", server + "/control/v1/workstations/" + ws + "/token", "", &status);
     check(status == 200, "отзыв токена");
 }
 
@@ -616,7 +617,7 @@ void legacyScheme(Component& c, const std::string& server) {
     Result w = c.call("ПолучитьШиринуСтроки", {Value::str(id), Value::integer(0)});
     check(isTrue(w.ret) && w.params[1].kind == Value::Int && w.params[1].i > 0, "ККТ по старой схеме: ширина ленты " + show(w.params[1]));
     int status = 0;
-    std::string j = http(L"GET", server + "/control/v1/journal?method=session.open&workstation_id=" + ws + "&limit=1", "", &status);
+    std::string j = http("GET", server + "/control/v1/journal?method=session.open&workstation_id=" + ws + "&limit=1", "", &status);
     check(j.find("\"equipment_type\":\"ККТ\"") != std::string::npos, "сессия рабочего места из УстановитьПараметр: " + j.substr(0, 200));
     Result d = c.call("Отключить", {Value::str(id)});
     check(isTrue(d.ret), "Отключить: " + lastError(c));
@@ -627,7 +628,7 @@ void legacyScheme(Component& c, const std::string& server) {
     check(isTrue(r.ret), "терминал по старой схеме: " + lastError(c));
     const std::string term = r.params[0].s;
     {
-        std::string devs = http(L"GET", server + "/control/v1/devices", "", &status);
+        std::string devs = http("GET", server + "/control/v1/devices", "", &status);
         std::string dev;
         const std::string key = std::string("\"workstation_id\":\"") + ws + "\"";
         for (size_t at = devs.find(key); at != std::string::npos && dev.empty(); at = devs.find(key, at + 1)) {
@@ -635,7 +636,7 @@ void legacyScheme(Component& c, const std::string& server) {
             std::string id = from == std::string::npos ? "" : devs.substr(from + 13, devs.find('"', from + 13) - from - 13);
             if (id.rfind("acquiring-", 0) == 0) dev = id;
         }
-        http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"card_mode\":\"approve\"}", &status);
+        http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"card_mode\":\"approve\"}", &status);
         check(status == 200, "автоодобрение для " + dev);
     }
     Result s = c.call("ПечатьКвитанцийНаТерминале", {});
@@ -687,7 +688,7 @@ void scales(Component& c, const std::string& server) {
     // Вес «кладут» через Control API — как кнопкой в веб-интерфейсе.
     int status = 0;
     const std::string dev = deviceOf(server, ws, "ScaleOptions");
-    http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"weight\":1.75}", &status);
+    http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"weight\":1.75}", &status);
     check(status == 200, "вес на платформе: HTTP " + std::to_string(status));
     r = c.call("УстановитьВесТары", {Value::str(id), Value::number(0.25)});
     check(isTrue(r.ret), "тара 0.25: " + lastError(c));
@@ -698,22 +699,22 @@ void scales(Component& c, const std::string& server) {
           "данные весов: " + show(r.params[1]));
 
     // Режим ask: ПолучитьВес ждёт, пока вес введут на экране весов (как в трее).
-    http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"weight_mode\":\"ask\"}", &status);
+    http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"weight_mode\":\"ask\"}", &status);
     Result w;
     std::thread weigher([&] { w = c.call("ПолучитьВес", {Value::str(id), Value::number(0)}); });
     std::string promptId;
     for (int i = 0; i < 100 && promptId.empty(); ++i) {
-        Sleep(100);
-        std::string j = http(L"GET", server + "/control/v1/journal?method=device.prompt&workstation_id=" + ws + "&limit=1", "", &status);
+        pause(100);
+        std::string j = http("GET", server + "/control/v1/journal?method=device.prompt&workstation_id=" + ws + "&limit=1", "", &status);
         promptId = field(j, "prompt_id");
     }
     check(!promptId.empty(), "экран весов открыл запрос «положите товар»");
-    std::string ans = http(L"POST", server + "/control/v1/devices/" + dev + "/prompt",
+    std::string ans = http("POST", server + "/control/v1/devices/" + dev + "/prompt",
                            "{\"prompt_id\":\"" + promptId + "\",\"action\":\"weigh\",\"value\":0.532}", &status);
     check(status == 200, "вес с экрана: HTTP " + std::to_string(status) + " " + ans);
     weigher.join();
     check(isTrue(w.ret) && number(w.params[1]) == 0.532, "вес с экрана весов: " + show(w.params[1]) + " " + lastError(c));
-    http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"stable\":false,\"weight_mode\":\"manual\"}", &status);
+    http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"stable\":false,\"weight_mode\":\"manual\"}", &status);
     r = c.call("ПолучитьВес", {Value::str(id), Value::number(0)});
     check(isFalse(r.ret) && lastError(c).rfind("71 ", 0) == 0, "нестабильный вес — ошибка 71: " + lastError(c));
     r = c.call("ОтключитьОборудование", {Value::str(id)});
@@ -729,7 +730,7 @@ void scales(Component& c, const std::string& server) {
     r = c.call("ВыгрузитьТовары", {Value::str(lid), Value::str(goods), Value::str("middle")});
     check(isFalse(r.ret) && lastError(c).rfind("81 ", 0) == 0, "неверный статус пакета — 81: " + lastError(c));
     const std::string ldev = deviceOf(server, ws, "UploadGoods");
-    std::string label = http(L"POST", server + "/control/v1/devices/" + ldev + "/actions/print_label", "{\"plu\":1,\"weight\":0.25}", &status);
+    std::string label = http("POST", server + "/control/v1/devices/" + ldev + "/actions/print_label", "{\"plu\":1,\"weight\":0.25}", &status);
     check(status == 200 && label.find("2100042002500") != std::string::npos, "этикетка с весовым штрихкодом: " + label);
     r = c.call("ОчиститьТовары", {Value::str(lid)});
     check(isTrue(r.ret), "очистка товаров: " + lastError(c));
@@ -758,7 +759,7 @@ void printers(Component& c, const std::string& server) {
     r = c.call("ОткрытьДенежныйЯщик", {Value::str(id)});
     check(isTrue(r.ret), "денежный ящик: " + lastError(c));
     int status = 0;
-    std::string j = http(L"GET", server + "/control/v1/journal?method=device.print&workstation_id=" + ws + "&limit=1", "", &status);
+    std::string j = http("GET", server + "/control/v1/journal?method=device.print&workstation_id=" + ws + "&limit=1", "", &status);
     check(j.find("[EAN13: 2000021262157]") != std::string::npos, "документ принтера чеков в журнале");
     r = c.call("СформироватьЧек", {Value::str(id), Value::boolean(false), Value::str("<CheckPackage/>"), Value::str("")});
     check(isFalse(r.ret) && lastError(c).rfind("99 ", 0) == 0, "фискальный метод на принтере чеков — 99: " + lastError(c));
@@ -786,7 +787,7 @@ void printers(Component& c, const std::string& server) {
     }
     r = c.call("ПечатьЭтикеток", {Value::str(lid), Value::str(next), Value::str("regular")});
     check(isFalse(r.ret) && lastError(c).rfind("94 ", 0) == 0, "пакет без разметки после last — 94: " + lastError(c));
-    j = http(L"GET", server + "/control/v1/journal?method=device.print&workstation_id=" + ws + "&limit=3", "", &status);
+    j = http("GET", server + "/control/v1/journal?method=device.print&workstation_id=" + ws + "&limit=3", "", &status);
     check(j.find("\"layout\"") != std::string::npos && j.find("ШК: [EAN13: 4008110271538]") != std::string::npos,
           "этикетки в журнале с разметкой");
     r = c.call("ОтключитьОборудование", {Value::str(lid)});
@@ -796,7 +797,7 @@ void printers(Component& c, const std::string& server) {
 // listeners — сколько компонент слушают события устройства (из /control/v1/devices).
 int listeners(const std::string& server, const std::string& dev) {
     int status = 0;
-    std::string j = http(L"GET", server + "/control/v1/devices", "", &status);
+    std::string j = http("GET", server + "/control/v1/devices", "", &status);
     size_t p = j.find("\"device_id\":\"" + dev + "\"");
     if (p == std::string::npos) return -1;
     size_t end = j.find("\"device_id\":", p + 1);
@@ -808,7 +809,7 @@ int listeners(const std::string& server, const std::string& dev) {
 bool waitListeners(const std::string& server, const std::string& dev, int want) {
     for (int i = 0; i < 60; ++i) {
         if (listeners(server, dev) == want) return true;
-        Sleep(50);
+        pause(50);
     }
     return false;
 }
@@ -826,12 +827,12 @@ void inputs(Component& c, const std::string& server) {
     const std::string dev = deviceOf(server, ws, "ConnectEquipment");
     check(waitListeners(server, dev, 1), "драйвер слушает события сканера " + dev);
     int status = 0;
-    std::string res = http(L"POST", server + "/control/v1/devices/" + dev + "/actions/scan", "{\"barcode\":\"4600000000008\"}", &status);
+    std::string res = http("POST", server + "/control/v1/devices/" + dev + "/actions/scan", "{\"barcode\":\"4600000000008\"}", &status);
     check(status == 200, "скан в панели: HTTP " + std::to_string(status) + " " + res);
     std::string data;
     check(c.platform().waitEvent(id, "Barcode", data) && data == "4600000000008", "ExternalEvent(" + id + ", Barcode): " + data);
     // код маркировки с разделителем GS доходит как есть
-    res = http(L"POST", server + "/control/v1/devices/" + dev + "/actions/scan", "{\"barcode\":\"0104600000000008215abc\\u001d93dGhK\"}", &status);
+    res = http("POST", server + "/control/v1/devices/" + dev + "/actions/scan", "{\"barcode\":\"0104600000000008215abc\\u001d93dGhK\"}", &status);
     check(c.platform().waitEvent(id, "Barcode", data) && data == std::string("0104600000000008215abc\x1d") + "93dGhK",
           "код маркировки с GS: " + data);
 
@@ -840,7 +841,7 @@ void inputs(Component& c, const std::string& server) {
     const std::string cid = r.params[0].s;
     const std::string cdev = deviceOf(server, ws, "ConnectEquipment");
     check(cdev != dev && waitListeners(server, cdev, 1), "драйвер слушает события считывателя " + cdev);
-    http(L"POST", server + "/control/v1/devices/" + cdev + "/actions/swipe", "{\"card\":\"discount\"}", &status);
+    http("POST", server + "/control/v1/devices/" + cdev + "/actions/swipe", "{\"card\":\"discount\"}", &status);
     check(c.platform().waitEvent(cid, "TracksData", data) && data == "7770000000017=2912\r", "ExternalEvent(TracksData): " + data);
 
     r = c.call("ОтключитьОборудование", {Value::str(id)});
@@ -871,13 +872,13 @@ void others(Component& c, const std::string& server) {
     check(isTrue(r.ret) && contains(r.params[1], "Columns=\"20\"") && contains(r.params[1], "DisplayHTML=\"true\""),
           "параметры дисплея: " + show(r.params[1]));
     r = c.call("ВывестиСтрокуНаДисплейПокупателя", {Value::str(id), Value::str("Молоко 89.90\nИтого: 89.90")});
-    check(isTrue(r.ret) && http(L"GET", server + "/control/v1/devices", "", &status).find("Итого: 89.90") != std::string::npos,
+    check(isTrue(r.ret) && http("GET", server + "/control/v1/devices", "", &status).find("Итого: 89.90") != std::string::npos,
           "строки на дисплее: " + lastError(c));
     r = c.call("ОтобразитьСтатусРабочегоМеста", {Value::str(id), Value::integer(3), Value::integer(1)});
     check(isTrue(r.ret), "статус рабочего места: " + lastError(c));
-    http(L"PUT", server + "/control/v1/devices/" + dev + "/state", "{\"interactive\":true}", &status);
+    http("PUT", server + "/control/v1/devices/" + dev + "/state", "{\"interactive\":true}", &status);
     check(waitListeners(server, dev, 1), "драйвер слушает события дисплея");
-    http(L"POST", server + "/control/v1/devices/" + dev + "/actions/click", "{\"element\":\"ОплатаСБП\"}", &status);
+    http("POST", server + "/control/v1/devices/" + dev + "/actions/click", "{\"element\":\"ОплатаСБП\"}", &status);
     std::string data;
     check(c.platform().waitEvent(id, "OnClick", data) && data == "ОплатаСБП", "ExternalEvent(OnClick): " + data);
     c.call("ОтключитьОборудование", {Value::str(id)});
@@ -887,7 +888,7 @@ void others(Component& c, const std::string& server) {
     const std::string goods = "<Table FullLoad=\"true\"><Record BarCodeBase64=\"NDYwMDAwMDAwMDAwOA==\" Name=\"Молоко\" Price=\"89.9\"/></Table>";
     r = c.call("ВыгрузитьТаблицу", {Value::str(id), Value::str(goods), Value::str("last")});
     check(isTrue(r.ret), "выгрузка в ТСД: " + lastError(c));
-    http(L"POST", server + "/control/v1/devices/" + dev + "/actions/collect", "{\"barcode\":\"4600000000008\",\"quantity\":3}", &status);
+    http("POST", server + "/control/v1/devices/" + dev + "/actions/collect", "{\"barcode\":\"4600000000008\",\"quantity\":3}", &status);
     r = c.call("ЗагрузитьТаблицу", {Value::str(id), Value::str("")});
     check(isTrue(r.ret) && contains(r.params[1], "BarCodeBase64=\"NDYwMDAwMDAwMDAwOA==\" Quantity=\"3\""), "загрузка из ТСД: " + show(r.params[1]));
     r = c.call("ОчиститьТаблицу", {Value::str(id)});
@@ -899,7 +900,7 @@ void others(Component& c, const std::string& server) {
     check(waitListeners(server, dev, 1), "драйвер слушает события RFID");
     r = c.call("ОткрытьСессиюRFID", {Value::str(id)});
     check(isTrue(r.ret), "сессия RFID: " + lastError(c));
-    http(L"POST", server + "/control/v1/devices/" + dev + "/actions/add_tag",
+    http("POST", server + "/control/v1/devices/" + dev + "/actions/add_tag",
          "{\"tid\":\"E28011002000589616B408A1\",\"epc\":\"3074367C34001E880A6D6168\"}", &status);
     std::string pkg;
     check(c.platform().waitEvent(id, "RFID", pkg) && !pkg.empty(), "ExternalEvent(RFID): " + pkg);
@@ -922,55 +923,46 @@ void others(Component& c, const std::string& server) {
     c.call("ОтключитьОборудование", {Value::str(id)});
 }
 
-void writeText(const std::wstring& path, const std::string& text) {    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    DWORD n = 0;
-    WriteFile(h, text.data(), static_cast<DWORD>(text.size()), &n, nullptr);
-    CloseHandle(h);
+namespace fs = std::filesystem;
+
+fs::path pathOf(const std::string& utf8) { return fs::u8path(utf8); }
+
+void writeText(const std::string& path, const std::string& text) {
+    FILE* f = nullptr;
+#ifdef _WIN32
+    _wfopen_s(&f, pathOf(path).c_str(), L"wb");
+#else
+    f = std::fopen(path.c_str(), "wb");
+#endif
+    if (!f) return;
+    std::fwrite(text.data(), 1, text.size(), f);
+    std::fclose(f);
 }
 
-void removeTree(const std::wstring& dir) {
-    WIN32_FIND_DATAW fd;
-    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            std::wstring name = fd.cFileName;
-            if (name == L"." || name == L"..") continue;
-            std::wstring path = dir + L"\\" + name;
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) removeTree(path);
-            else DeleteFileW(path.c_str());
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    }
-    RemoveDirectoryW(dir.c_str());
+void removeTree(const std::string& dir) {
+    std::error_code ec;
+    fs::remove_all(pathOf(dir), ec);
 }
 
-std::wstring baseName(const std::wstring& path) {
-    size_t p = path.find_last_of(L"\\/");
-    return p == std::wstring::npos ? path : path.substr(p + 1);
-}
-
-// redirect — самообновление: в кэше лежит «версия 99.0.0» (копия этой же DLL),
-// экспорты исходной DLL должны уйти в неё. expect=false — при EMULKON_DRIVER_NO_UPDATE=1 не уходят.
-int redirect(const std::wstring& dll, std::wstring cache, bool expect) {
-    for (auto& ch : cache) {
-        if (ch == L'/') ch = L'\\';  // CMake передаёт путь с «/»
-    }
-    removeTree(cache);
-    std::wstring dir = cache + L"\\99.0.0";
-    CreateDirectoryW(cache.c_str(), nullptr);
-    CreateDirectoryW(dir.c_str(), nullptr);
-    std::wstring copy = dir + L"\\" + baseName(dll);
-    check(CopyFileW(dll.c_str(), copy.c_str(), FALSE) != 0, "копия DLL в кэш обновлений");
-    SetEnvironmentVariableW(L"EMULKON_DRIVER_CACHE", cache.c_str());
+// redirect — самообновление: в кэше лежит «версия 99.0.0» (копия этого же драйвера),
+// экспорты исходного драйвера должны уйти в неё. expect=false — при EMULKON_DRIVER_NO_UPDATE=1 не уходят.
+int redirect(const std::string& dll, const std::string& cacheArg, bool expect) {
+    const fs::path cache = pathOf(cacheArg).make_preferred();  // CMake передаёт путь с «/»
+    removeTree(cache.u8string());
+    const fs::path dir = cache / "99.0.0";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path copy = dir / pathOf(dll).filename();
+    check(fs::copy_file(pathOf(dll), copy, fs::copy_options::overwrite_existing, ec), "копия драйвера в кэш обновлений");
+    emu::sys::setEnv("EMULKON_DRIVER_CACHE", cache.u8string().c_str());
 
     Component c;
     if (!c.load(dll) || !c.create(u"EmulkonDriver")) {
-        std::printf("FAIL загрузка DLL\n");
+        std::printf("FAIL загрузка драйвера: %s\n", loadError().c_str());
         return 1;
     }
-    bool redirected = GetModuleHandleW(copy.c_str()) != nullptr;
-    check(redirected == expect, expect ? "экспорты ушли в DLL из кэша" : "переадресация выключена (EMULKON_DRIVER_NO_UPDATE)");
+    bool redirected = isLoaded(copy.u8string());
+    check(redirected == expect, expect ? "экспорты ушли в драйвер из кэша" : "переадресация выключена (EMULKON_DRIVER_NO_UPDATE)");
     check(c.classNames() == "EmulkonDriver", "GetClassNames через переадресацию");
     Result r = c.call("ПолучитьРевизиюИнтерфейса", {});
     check(r.ret.kind == Value::Int && r.ret.i == 4008, "объект из кэша работает: " + show(r.ret));
@@ -979,31 +971,25 @@ int redirect(const std::wstring& dll, std::wstring cache, bool expect) {
     return g_failed ? 1 : 0;
 }
 
-}  // namespace
-
-int wmain(int argc, wchar_t** argv) {
-    SetConsoleOutputCP(CP_UTF8);
-    if (argc >= 5 && std::wstring(argv[1]) == L"--redirect") {
-        return redirect(argv[2], argv[3], std::wstring(argv[4]) == L"1");
-    }
-    if (argc < 2) {
-        std::printf("использование: harness <путь к DLL> [http://сервер:порт]\n"
-                    "               harness --redirect <путь к DLL> <каталог кэша> <1|0>\n");
+int run(const std::vector<std::string>& args) {
+    if (args.size() >= 5 && args[1] == "--redirect") return redirect(args[2], args[3], args[4] == "1");
+    if (args.size() < 2) {
+        std::printf("использование: harness <путь к драйверу> [http://сервер:порт]\n"
+                    "               harness --redirect <путь к драйверу> <каталог кэша> <1|0>\n");
         return 2;
     }
-    // Свой пустой кэш обновлений: стенд не должен уйти в DLL, скачанную на этой машине,
-    // и не трогает настоящий %LOCALAPPDATA%\Emulkon\driver.
-    wchar_t tmp[MAX_PATH];
-    GetTempPathW(MAX_PATH, tmp);
-    std::wstring cache = std::wstring(tmp) + L"emulkon-harness-" + std::to_wstring(GetCurrentProcessId());
+    // Свой пустой кэш обновлений: стенд не должен уйти в драйвер, скачанный на этой машине,
+    // и не трогает настоящий кэш пользователя.
+    const std::string cache = emu::sys::tempDir() + emu::sys::kSep + "emulkon-harness-" + std::to_string(emu::sys::processId());
     removeTree(cache);
-    CreateDirectoryW(cache.c_str(), nullptr);
-    writeText(cache + L"\\server.txt", "http://127.0.0.1:9");
-    SetEnvironmentVariableW(L"EMULKON_DRIVER_CACHE", cache.c_str());
+    std::error_code ec;
+    fs::create_directories(pathOf(cache), ec);
+    writeText(cache + emu::sys::kSep + "server.txt", "http://127.0.0.1:9");
+    emu::sys::setEnv("EMULKON_DRIVER_CACHE", cache.c_str());
 
     Component c;
-    if (!c.load(argv[1])) {
-        std::printf("FAIL не удалось загрузить DLL или найти экспорты (код %lu)\n", GetLastError());
+    if (!c.load(args[1])) {
+        std::printf("FAIL не удалось загрузить драйвер или найти экспорты: %s\n", loadError().c_str());
         return 1;
     }
     check(c.attachType() == eCanAttachAny, "GetAttachType");
@@ -1012,20 +998,33 @@ int wmain(int argc, wchar_t** argv) {
         return 1;
     }
     offline(c);
-    if (argc >= 3) {
-        std::wstring w(argv[2]);
-        online(c, std::string(w.begin(), w.end()));
-        acquiring(c, std::string(w.begin(), w.end()));
-        instances(c, std::string(w.begin(), w.end()));
-        workstationToken(c, std::string(w.begin(), w.end()));
-        legacyScheme(c, std::string(w.begin(), w.end()));
-        scales(c, std::string(w.begin(), w.end()));
-        printers(c, std::string(w.begin(), w.end()));
-        inputs(c, std::string(w.begin(), w.end()));
-        others(c, std::string(w.begin(), w.end()));
+    if (args.size() >= 3) {
+        const std::string& server = args[2];
+        online(c, server);
+        acquiring(c, server);
+        instances(c, server);
+        workstationToken(c, server);
+        legacyScheme(c, server);
+        scales(c, server);
+        printers(c, server);
+        inputs(c, server);
+        others(c, server);
     }
     c.destroy();
     removeTree(cache);
-    std::printf("harness: %d passed, %d failed%s\n", g_passed, g_failed, argc >= 3 ? " (с сервером)" : " (без сервера)");
+    std::printf("harness: %d passed, %d failed%s\n", g_passed, g_failed, args.size() >= 3 ? " (с сервером)" : " (без сервера)");
     return g_failed ? 1 : 0;
 }
+
+}  // namespace
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t** argv) {
+    SetConsoleOutputCP(CP_UTF8);
+    std::vector<std::string> args;
+    for (int i = 0; i < argc; ++i) args.push_back(emu::utf16to8(reinterpret_cast<const char16_t*>(argv[i])));
+    return run(args);
+}
+#else
+int main(int argc, char** argv) { return run(std::vector<std::string>(argv, argv + argc)); }
+#endif
