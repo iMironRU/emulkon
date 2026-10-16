@@ -20,7 +20,8 @@ if (-not (Test-Path -LiteralPath $Server)) {
     if (Test-Path 'C:\.dev\.tools\activate.ps1') { . 'C:\.dev\.tools\activate.ps1' | Out-Null }  # иначе go — из PATH
     $Server = Join-Path $tmp "emulkon.exe"
     Push-Location (Join-Path $PSScriptRoot "..\..\server")
-    try { go build -o $Server ./cmd/emulkon; if ($LASTEXITCODE -ne 0) { throw "go build: код $LASTEXITCODE" } } finally { Pop-Location }
+    $version = (Get-Content (Join-Path $PSScriptRoot "..\..\VERSION") -TotalCount 1).Trim()  # тест сверяет версию сервера
+    try { go build -ldflags "-X main.version=$version" -o $Server ./cmd/emulkon; if ($LASTEXITCODE -ne 0) { throw "go build: код $LASTEXITCODE" } } finally { Pop-Location }
 }
 
 # Токены — случайные на каждый прогон; задаются окружением: оно важнее реестра службы.
