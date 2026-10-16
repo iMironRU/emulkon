@@ -2,7 +2,7 @@
 // с временными данными и токенами). Рабочая служба этого компьютера не трогается: адрес — только из
 // EMULKON_CONSOLE_URL. Проверяется то, что делают окна этапов 2–3 (docs/local-install.md §4.1): сводка
 // с токеном и без, рабочие места (токен — выдать, проверить драйвером, отозвать; новое место; подпись),
-// устройства (подпись, сброс настроек, удаление).
+// устройства (подпись, сброс настроек, удаление), сценарии и журнал, скачивание обновления (этап 5).
 #include <windows.h>
 
 #include <cstdio>
@@ -11,6 +11,7 @@
 
 #include "http.h"
 #include "inventory.h"
+#include "maintenance.h"
 #include "records.h"
 #include "summary.h"
 
@@ -269,6 +270,43 @@ int main() {
     setConsoleToken("");
     CHECK(!exportJournal(all, L"", lines, err) && err.find(L"нужен токен") == 0);  // без токена — отказ, файла нет
     CHECK(GetFileAttributesW(all.c_str()) == INVALID_FILE_ATTRIBUTES);
+
+    // Обновления (этап 5): описания выпуска на сервере эмуляции нет — понятная ошибка; установщик live.ps1
+    // положил в каталог загрузок: скачивается с проверкой SHA-256, подменённая сумма — файла нет.
+    SetEnvironmentVariableW(L"EMULKON_UPDATE_URL", widen(base + "/downloads/latest.json").c_str());
+    Release rel;
+    CHECK(!fetchRelease(rel, err) && err.find(L"описания выпуска нет") == 0);
+    const std::string setupBody = env("LIVE_SETUP_BODY");
+    rel.version = "99.0.0";
+    rel.url = base + "/downloads/EmulkonSetup_99.0.0.exe";
+    rel.sha256 = sha256Hex(setupBody);
+    rel.size = static_cast<long long>(setupBody.size());
+    const std::wstring updates = std::wstring(tmp) + L"emulkon-console-live-updates";
+    std::wstring setupPath;
+    const bool downloaded = downloadRelease(rel, updates, setupPath, err);
+    if (!downloaded) std::printf("download: %s\n", narrow(err).c_str());
+    CHECK(downloaded && setupPath == updates + L"\\EmulkonSetup_99.0.0.exe");
+    {
+        std::string got;
+        std::wstring rerr;
+        HANDLE f = CreateFileW(setupPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (f != INVALID_HANDLE_VALUE) {
+            char buf[4096];
+            DWORD n = 0;
+            while (ReadFile(f, buf, sizeof buf, &n, nullptr) && n) got.append(buf, n);
+            CloseHandle(f);
+        }
+        CHECK(!setupBody.empty() && got == setupBody);
+    }
+    DeleteFileW(setupPath.c_str());
+    rel.sha256 = std::string(64, '0');
+    CHECK(!downloadRelease(rel, updates, setupPath, err) && err.find(L"контрольная сумма") != std::wstring::npos);
+    CHECK(GetFileAttributesW(setupPath.c_str()) == INVALID_FILE_ATTRIBUTES);
+    rel.sha256 = sha256Hex(setupBody);
+    rel.size = 1;
+    CHECK(!downloadRelease(rel, updates, setupPath, err) && err.find(L"размер") == 0);
+    RemoveDirectoryW(updates.c_str());
+    SetEnvironmentVariableW(L"EMULKON_UPDATE_URL", nullptr);
 
     std::printf("console_live: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;

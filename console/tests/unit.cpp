@@ -3,6 +3,7 @@
 #include <string>
 
 #include "inventory.h"
+#include "maintenance.h"
 #include "records.h"
 #include "summary.h"
 
@@ -227,7 +228,70 @@ static void testRecords() {
     setJournalFilter(L"");
 }
 
+static void testMaintenance() {
+    // Версии: числа, а не строки; предварительная младше выпуска.
+    CHECK(compareVersions("0.10.0", "0.9.9") > 0);
+    CHECK(compareVersions("0.9.0", "0.9.0") == 0);
+    CHECK(compareVersions("0.9.0-rc1", "0.9.0") < 0);
+    CHECK(compareVersions("0.9.0", "0.9.0-rc1") > 0);
+    CHECK(compareVersions("1.0.0", "0.99.99") > 0);
+    CHECK(compareVersions("мусор", "0.0.1") < 0);
+
+    const std::string sha(64, 'a');
+    const std::string good = R"({"version":"0.9.0","published":"2026-10-20","size":123,)"
+                             R"("url":"https://github.com/iMironRU/emulkon/releases/download/v0.9.0/EmulkonSetup_0.9.0.exe",)"
+                             R"("sha256":")" + std::string(64, 'A') + R"j(","notes":"### Добавлено\n- **Драйвер** для `Linux` — [tests](tests/linux)"})j";
+    Release r;
+    std::wstring err;
+    CHECK(parseRelease(good, false, r, err));
+    CHECK(r.version == "0.9.0" && r.size == 123 && r.sha256 == sha && r.published == "2026-10-20");
+    CHECK(plainNotes(r.notes) == L"Добавлено\n• Драйвер для Linux — tests");
+    // http — только для живого теста; файл — установщик той же версии; сумма — 64 hex.
+    auto with = [&](const std::string& from, const std::string& to) {
+        std::string s = good;
+        s.replace(s.find(from), from.size(), to);
+        return s;
+    };
+    CHECK(!parseRelease(with("https://github.com", "http://github.com"), false, r, err));
+    CHECK(parseRelease(with("https://github.com", "http://github.com"), true, r, err));
+    CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "EmulkonSetup_0.8.0.exe"), false, r, err));
+    CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "evil.exe"), false, r, err));
+    CHECK(!parseRelease(with(std::string(64, 'A'), "abc"), false, r, err));
+    CHECK(!parseRelease(with("\"0.9.0\"", "\"0.9\""), false, r, err));
+    CHECK(!parseRelease("не json", false, r, err));
+    CHECK(plainNotes(std::string(3000, 'x'), 100).size() <= 102);
+
+    // Настройки: выгрузка и разбор туда и обратно.
+    std::vector<Setting> in = {{L"Addr", L"0.0.0.0:8737"}, {L"Network", L"", 1, true}, {L"LogLevel", L"debug"},
+                               {L"ControlTokenHash", widen(sha)}};
+    const std::string file = settingsFile(in, "KASSA-1", "2026-10-15T12:00:00");
+    std::vector<Setting> out;
+    std::vector<std::wstring> warnings;
+    CHECK(parseSettingsFile(file, out, warnings, err));
+    CHECK(out.size() == 4 && warnings.empty());
+    CHECK(settingsSummary(out) == settingsSummary(in));
+    CHECK(settingsSummary(out).find(L"ControlTokenHash = задан (SHA-256)") != std::wstring::npos);
+    CHECK(settingsSummary(out).find(L"DataDir = по умолчанию") != std::wstring::npos);
+    CHECK(file.find("KASSA-1") != std::string::npos && file.find("emulkon-settings") != std::string::npos);
+    // С BOM, незнакомое значение — предупреждение; ошибки — отказ целиком.
+    CHECK(parseSettingsFile("\xEF\xBB\xBF{\"format\":\"emulkon-settings\",\"version\":1,\"server\":{\"Foo\":\"1\",\"LogLevel\":\"INFO\"}}",
+                            out, warnings, err));
+    CHECK(out.size() == 1 && out[0].text == L"info" && warnings.size() == 1);
+    const char* bad[] = {
+        R"({"format":"emulkon-settings","version":2,"server":{}})",
+        R"({"format":"other","version":1,"server":{}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"Network":2}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"Network":"1"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"LogLevel":"trace"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"DeviceTokenHash":"emk_секрет"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"Addr":"8737"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"DataDir":"C:\\a\nb"}})",
+    };
+    for (const char* b : bad) CHECK(!parseSettingsFile(b, out, warnings, err));
+}
+
 int main() {
+    testMaintenance();
     testRecords();
     testInventory();
     testAddress();

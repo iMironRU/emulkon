@@ -2,7 +2,7 @@
 #
 #   .github\scripts\release-notes.ps1 -Version 0.8.0 > notes.md
 
-param([Parameter(Mandatory = $true)][string]$Version)
+param([Parameter(Mandatory = $true)][string]$Version, [switch]$ChangesOnly)  # ChangesOnly — без строки об установке (latest.json)
 
 $ErrorActionPreference = "Stop"
 $lines = Get-Content (Join-Path $PSScriptRoot "..\..\CHANGELOG.md") -Encoding UTF8
@@ -18,6 +18,7 @@ foreach ($l in $lines) {
 }
 if (-not $inside -and -not $out) { throw "В CHANGELOG.md нет раздела [$Version]" }
 ($out -join "`n").Trim()
+if ($ChangesOnly) { return }
 ""
 "**Установка:** скачайте ``EmulkonSetup_$Version.exe`` и запустите (нужны права администратора). Подписи кода пока нет —"
 "проверьте файл по ``SHA256SUMS``. Пакет драйвера для «Драйверов оборудования» БПО — ``EmulkonDriver_$Version.zip``."
