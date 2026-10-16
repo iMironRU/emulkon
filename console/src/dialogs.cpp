@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "inventory.h"
+#include "maintenance.h"
 #include "records.h"
 #include "summary.h"
 
@@ -981,6 +982,114 @@ bool askJournalFilter(HWND parent) {
                  L"Текст для поиска в записях: метод, устройство, рабочее место, данные. Пусто — без отбора.", text))
         return false;
     setJournalFilter(text);
+    return true;
+}
+
+// --- обновления, выгрузка и загрузка настроек (этап 5) ---
+
+bool checkUpdatesDialog(HWND parent) {
+    Release rel;
+    std::wstring err;
+    bool ok;
+    {
+        WaitCursor wait;
+        ok = fetchRelease(rel, err);
+    }
+    if (!ok) {
+        fail(parent, L"Не удалось проверить обновления.", err);
+        return false;
+    }
+    const std::wstring installed = widen(EMULKON_VERSION), latest = widen(rel.version);
+    const std::wstring when = rel.published.empty() ? L"" : L" от " + widen(rel.published);
+    if (compareVersions(rel.version, EMULKON_VERSION) <= 0) {
+        MessageBoxW(parent, (L"Установлена последняя версия: " + installed + L".\nПоследний выпуск — " + latest + when + L".").c_str(),
+                    kTitle, MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    std::wstring text = L"Вышла версия " + latest + when + L". Установлена " + installed + L".";
+    const std::wstring notes = plainNotes(rel.notes);
+    if (!notes.empty()) text += L"\n\nЧто нового:\n" + notes;
+    text += L"\n\nСкачать и установить? Установщик проверяется по SHA-256 из описания выпуска; откроется мастер "
+            L"обновления — он перезапустит службу. Драйверы в базах 1С обновятся сами при подключении.";
+    if (ask(parent, text, MB_ICONQUESTION) != IDYES) return false;
+    std::wstring path;
+    {
+        WaitCursor wait;
+        ok = downloadRelease(rel, machineDataDir() + L"\\updates", path, err);
+    }
+    if (!ok) {
+        fail(parent, L"Обновление не скачано.", err);
+        return false;
+    }
+    if (!runInstaller(path, err)) {
+        fail(parent, L"Установщик не запустился.", err);
+        return false;
+    }
+    MessageBoxW(parent,
+                (L"Запущен мастер обновления до " + latest + L".\n" + path +
+                 L"\n\nЗакройте консоль: мастер заменит и её файлы.")
+                    .c_str(),
+                kTitle, MB_OK | MB_ICONINFORMATION);
+    return false;
+}
+
+bool exportSettingsDialog(HWND parent) {
+    std::vector<Setting> values;
+    std::wstring err;
+    if (!readSettings(values, err)) {
+        fail(parent, L"Настройки не выгружены.", err);
+        return false;
+    }
+    wchar_t computer[MAX_COMPUTERNAME_LENGTH + 1] = {};
+    DWORD n = MAX_COMPUTERNAME_LENGTH + 1;
+    GetComputerNameW(computer, &n);
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    char stamp[32];
+    snprintf(stamp, sizeof stamp, "%04u-%02u-%02uT%02u:%02u:%02u", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    std::wstring path = L"emulkon-settings-" + today() + L".json";
+    if (!fileDialog(parent, true, L"Выгрузить настройки службы", L"Настройки Эмулкона (*.json)\0*.json\0Все файлы\0*.*\0",
+                    L"json", path))
+        return false;
+    if (!writeText(path, settingsFile(values, narrow(computer), stamp), err)) {
+        fail(parent, L"Настройки не выгружены.", err);
+        return false;
+    }
+    MessageBoxW(parent,
+                (L"Настройки службы выгружены:\n" + path + L"\n\n" + settingsSummary(values) +
+                 L"\nТокенов в файле нет — только их SHA-256: после загрузки на другом компьютере подойдут те же токены.")
+                    .c_str(),
+                kTitle, MB_OK | MB_ICONINFORMATION);
+    return false;
+}
+
+bool importSettingsDialog(HWND parent) {
+    std::wstring path, err;
+    if (!fileDialog(parent, false, L"Загрузить настройки службы", L"Настройки Эмулкона (*.json)\0*.json\0Все файлы\0*.*\0",
+                    L"json", path))
+        return false;
+    std::string text;
+    std::vector<Setting> values;
+    std::vector<std::wstring> warnings;
+    if (!readText(path, text, err) || !parseSettingsFile(text, values, warnings, err)) {
+        fail(parent, L"Настройки не загружены.", err);
+        return false;
+    }
+    std::wstring q = L"Загрузить настройки службы из файла?\n\n" + path + L"\n\n" + settingsSummary(values) +
+                     L"\nЗначения, которых нет в файле, станут по умолчанию. Служба будет перезапущена.";
+    if (readServerSettings().policy) q += L"\n\nЕсть групповая политика Эмулкона: её значения важнее файла.";
+    for (const std::wstring& w : warnings) q += L"\n• " + w;
+    if (ask(parent, q, MB_ICONQUESTION) != IDYES) return false;
+    bool ok;
+    {
+        WaitCursor wait;
+        ok = applySettings(values, err);
+    }
+    if (!ok) {
+        fail(parent, L"Настройки загружены не полностью.", err);
+        return true;
+    }
+    MessageBoxW(parent, L"Настройки службы загружены.", kTitle, MB_OK | MB_ICONINFORMATION);
     return true;
 }
 

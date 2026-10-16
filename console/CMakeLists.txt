@@ -19,6 +19,7 @@ add_library(console_core STATIC
   src/admin.cpp
   src/inventory.cpp
   src/records.cpp
+  src/maintenance.cpp
   "${COMPONENT_SRC}/json.cpp"
   "${COMPONENT_SRC}/text.cpp"
   "${COMPONENT_SRC}/http_winhttp.cpp")
