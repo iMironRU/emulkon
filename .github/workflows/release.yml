@@ -97,6 +97,19 @@ jobs:
           Pop-Location
           Get-Content release/SHA256SUMS
           .github/scripts/release-notes.ps1 -Version $v | Out-File notes.md -Encoding utf8
+          # latest.json — описание выпуска для «Проверить обновления» консоли (docs/local-install.md §2.3):
+          # releases/latest/download/latest.json всегда ведёт на последний обычный выпуск.
+          $setup = Get-Item "release/EmulkonSetup_$v.exe"
+          $latest = [ordered]@{
+            version   = $v
+            published = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+            url       = "https://github.com/${{ github.repository }}/releases/download/v$v/$($setup.Name)"
+            sha256    = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+            size      = $setup.Length
+            notes     = (.github/scripts/release-notes.ps1 -Version $v -ChangesOnly) -join "`n"
+          }
+          [IO.File]::WriteAllText((Join-Path $PWD "release/latest.json"), ($latest | ConvertTo-Json -Compress))
+          Get-Content release/latest.json
       - name: Релиз GitHub
         shell: pwsh
         env:

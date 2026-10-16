@@ -20,7 +20,8 @@ if (-not (Test-Path -LiteralPath $Server)) {
     if (Test-Path 'C:\.dev\.tools\activate.ps1') { . 'C:\.dev\.tools\activate.ps1' | Out-Null }  # иначе go — из PATH
     $Server = Join-Path $tmp "emulkon.exe"
     Push-Location (Join-Path $PSScriptRoot "..\..\server")
-    try { go build -o $Server ./cmd/emulkon; if ($LASTEXITCODE -ne 0) { throw "go build: код $LASTEXITCODE" } } finally { Pop-Location }
+    $version = (Get-Content (Join-Path $PSScriptRoot "..\..\VERSION") -TotalCount 1).Trim()  # тест сверяет версию сервера
+    try { go build -ldflags "-X main.version=$version" -o $Server ./cmd/emulkon; if ($LASTEXITCODE -ne 0) { throw "go build: код $LASTEXITCODE" } } finally { Pop-Location }
 }
 
 # Токены — случайные на каждый прогон; задаются окружением: оно важнее реестра службы.
@@ -29,7 +30,11 @@ $device = "live-dev-" + [guid]::NewGuid().ToString("N")
 $url = "http://127.0.0.1:$Port"
 $proc = $null
 $saved = @{}
-foreach ($k in "EMULKON_CONTROL_TOKEN", "EMULKON_DEVICE_TOKEN", "EMULKON_CONSOLE_URL", "LIVE_CONTROL_TOKEN", "LIVE_DEVICE_TOKEN") {
+# «Установщик» новой версии в каталоге загрузок — для проверки скачивания обновления (не запускается).
+$setupBody = "MZ emulkon console live " + [guid]::NewGuid().ToString("N")
+[IO.File]::WriteAllText((Join-Path $tmp "EmulkonSetup_99.0.0.exe"), $setupBody)
+foreach ($k in "EMULKON_CONTROL_TOKEN", "EMULKON_DEVICE_TOKEN", "EMULKON_CONSOLE_URL", "EMULKON_UPDATE_URL", "LIVE_CONTROL_TOKEN",
+    "LIVE_DEVICE_TOKEN", "LIVE_SETUP_BODY") {
     $saved[$k] = [Environment]::GetEnvironmentVariable($k, "Process")
 }
 try {
@@ -50,6 +55,7 @@ try {
     $env:EMULKON_CONSOLE_URL = $url
     $env:LIVE_CONTROL_TOKEN = $control
     $env:LIVE_DEVICE_TOKEN = $device
+    $env:LIVE_SETUP_BODY = $setupBody
     & $Exe
     if ($LASTEXITCODE -ne 0) { throw "живой тест оснастки: код $LASTEXITCODE" }
 } finally {
