@@ -412,6 +412,9 @@ enum Command : long {
     kCmdJournalFilter,
     kCmdJournalNoFilter,
     kCmdExportJournal,
+    kCmdCheckUpdates,
+    kCmdExportSettings,
+    kCmdImportSettings,
 };
 
 class ComponentData final : public IComponentData, public IExtendContextMenu, public IExtendPropertySheet2 {
@@ -454,6 +457,16 @@ public:
             add(menu, kCmdIssueDevice, L"Выдать токен устройств…", L"Новый общий токен Device API: показывается один раз", !s.readable);
             add(menu, kCmdRemoveDevice, L"Снять токен устройств", L"Драйверы без токена рабочего места — без токена",
                 !s.readable || !s.deviceToken);
+            separator(menu);
+            add(menu, kCmdExportSettings, L"Выгрузить настройки…", L"Настройки службы в файл JSON — для переноса на другой компьютер",
+                !s.readable);
+            add(menu, kCmdImportSettings, L"Загрузить настройки…", L"Настройки службы из файла: записать и перезапустить службу",
+                !s.readable);
+            separator(menu);
+        }
+        if (d.cookie == 0) {
+            add(menu, kCmdCheckUpdates, L"Проверить обновления…", L"Последний выпуск Эмулкона на GitHub: что нового, скачать и установить",
+                false);
             separator(menu);
         }
         if (d.cookie == kCookieScenarios) {
@@ -500,6 +513,9 @@ public:
                 changed = true;
                 break;
             case kCmdExportJournal: changed = console::exportJournalDialog(parent); break;
+            case kCmdCheckUpdates: changed = console::checkUpdatesDialog(parent); break;
+            case kCmdExportSettings: changed = console::exportSettingsDialog(parent); break;
+            case kCmdImportSettings: changed = console::importSettingsDialog(parent); break;
             case kCmdConsoleToken: {
                 std::string token;
                 if (console::askToken(parent, token)) {
