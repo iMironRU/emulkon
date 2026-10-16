@@ -40,7 +40,7 @@ jobs:
           ONEC_SDK_B64: ${{ secrets.ONEC_SDK_B64 }}
         run: bash .github/scripts/linux-driver.sh
       - name: Драйвер Linux
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-driver
           path: dist-linux/
