@@ -1,5 +1,6 @@
 #include "device_client.h"
 
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -31,7 +32,32 @@ std::string errorCodeOf(const std::string& body, std::string* message = nullptr)
     return c ? c->text : std::string();
 }
 
+// hostOf — хост из http://host:port/путь (IPv6 — в скобках); нижний регистр.
+std::string hostOf(const std::string& url) {
+    size_t p = url.find("://");
+    std::string rest = p == std::string::npos ? url : url.substr(p + 3);
+    rest = rest.substr(0, rest.find('/'));
+    if (!rest.empty() && rest[0] == '[') return rest.substr(0, rest.find(']') + 1);
+    rest = rest.substr(0, rest.find(':'));
+    for (char& c : rest) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return rest;
+}
+
 }  // namespace
+
+std::string noConnectionMessage(const std::string& serverUrl, const std::string& error) {
+    std::string m = "Нет связи с сервером эмуляции " + serverUrl;
+    if (!error.empty()) m += ": " + error;
+    const std::string host = hostOf(serverUrl);
+    if (host == "127.0.0.1" || host == "localhost" || host == "[::1]") {
+        m += ". Эмулкон на этом компьютере не запущен или не установлен: установите его (imiron.ru/emulkon) или укажите "
+             "в настройках экземпляра адрес общего сервера команды (docker run … ghcr.io/imironru/emulkon).";
+    } else {
+        m += ". Проверьте, что сервер Эмулкона на " + host + " запущен и открыт для касс в сети (порт в адресе), и адрес в "
+             "настройках экземпляра.";
+    }
+    return m;
+}
 
 std::string newRequestId() {
     static thread_local std::mt19937_64 rng{std::random_device{}() ^
@@ -101,7 +127,7 @@ bool DeviceClient::open(std::string& message) {
 
     HttpResponse r = http_.post(ep_.serverUrl + "/api/v1/sessions", req.dump(), {}, ep_.timeoutMs);
     if (!r.error.empty()) {
-        message = "Нет связи с сервером эмуляции " + ep_.serverUrl + ": " + r.error;
+        message = noConnectionMessage(ep_.serverUrl, r.error);
         return false;
     }
     if (r.status != 200) {
@@ -154,7 +180,7 @@ CallResult DeviceClient::call(const std::string& method, const Json& params, int
         HttpResponse r = http_.post(ep_.serverUrl + "/api/v1/devices/" + deviceId() + "/commands", body,
                                     {{kSessionHeader, session}}, timeout);
         if (!r.error.empty()) {
-            lastError = "Нет связи с сервером эмуляции " + ep_.serverUrl + ": " + r.error;
+            lastError = noConnectionMessage(ep_.serverUrl, r.error);
             continue;
         }
         if (r.status == 401 && errorCodeOf(r.body) == "session_unknown" && !reopened) {
@@ -188,7 +214,7 @@ CallResult DeviceClient::call(const std::string& method, const Json& params, int
         if (const Json* v = resp.get("error_text")) out.errorText = v->text;
         return out;
     }
-    out.message = lastError.empty() ? "Нет связи с сервером эмуляции" : lastError;
+    out.message = lastError.empty() ? noConnectionMessage(ep_.serverUrl, "") : lastError;
     return out;
 }
 

@@ -37,6 +37,10 @@ struct CallResult {
     std::string message;  // описание сбоя транспорта
 };
 
+// noConnectionMessage — текст ошибки 900, когда до сервера не достучались: где искали и что сделать (issue #14).
+// Адрес этого компьютера — Эмулкон здесь не запущен или не установлен; другой адрес — сервер недоступен.
+std::string noConnectionMessage(const std::string& serverUrl, const std::string& error);
+
 class DeviceClient {
 public:
     DeviceClient(HttpClient& http, Endpoint ep, std::string equipmentType, std::string driverVersion, int interfaceRevision);

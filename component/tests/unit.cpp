@@ -94,6 +94,20 @@ static void testJsonLocale() {
     std::setlocale(LC_NUMERIC, "C");
 }
 
+// Ошибка 900 говорит, где искали сервер и что сделать (issue #14); начало — как прежде: по нему БПО узнаёт «нет связи».
+static void testNoConnectionHint() {
+    for (const char* local : {"http://127.0.0.1:8737", "http://localhost:8737/", "http://[::1]:8737", "HTTP://LocalHost:9000"}) {
+        const std::string m = noConnectionMessage(local, "соединение отклонено");
+        CHECK(m.rfind(std::string("Нет связи с сервером эмуляции ") + local + ": соединение отклонено.", 0) == 0);
+        CHECK(m.find("не запущен или не установлен") != std::string::npos && m.find("imiron.ru/emulkon") != std::string::npos);
+        CHECK(m.find("ghcr.io/imironru/emulkon") != std::string::npos);
+    }
+    const std::string remote = noConnectionMessage("http://kassa-srv.local:8737", "таймаут");
+    CHECK(remote.find("на kassa-srv.local запущен") != std::string::npos && remote.find("открыт для касс в сети") != std::string::npos);
+    CHECK(remote.find("не установлен") == std::string::npos);
+    CHECK(noConnectionMessage("http://10.0.0.5:8737", "").rfind("Нет связи с сервером эмуляции http://10.0.0.5:8737. ", 0) == 0);
+}
+
 static void testInfobase() {
     // Как запускают 1С: ярлык, стартер, run.ps1. Пароль (/P) не должен попасть в результат.
     CHECK(infobaseFromCommandLine(R"x("C:\Program Files\1cv8\bin\1cv8c.exe" ENTERPRISE /F"C:\.temp\Base1C\EmulkonTest" /N"Админ" /P"секрет")x") ==
@@ -431,6 +445,7 @@ static void testHttpClient() {}  // WinHTTP проверяют стенд (harne
 int main() {
     testJson();
     testJsonLocale();
+    testNoConnectionHint();
     testText();
     testInfobase();
     testMethods();
