@@ -10,13 +10,16 @@
 #
 #   .\build.ps1                                   всё с тестами
 #   .\build.ps1 -Server http://127.0.0.1:8738     плюс сценарий драйвера на живом сервере
+#   .\build.ps1 -Release                          выпуск: имена библиотек в пакете драйвера без хеша сборки
 #
 # Версия — файл VERSION. Сохранять в UTF-8 with BOM.
 
 param(
     [string]$Server = "",
     # Драйвер Linux (libEmulkonDriver_lin64.so) — собирается на Linux (CI); попадает в пакет, загрузки и установщик.
-    [string]$LinuxDriver = ""
+    [string]$LinuxDriver = "",
+    # Выпуск (release.yml): имена библиотек в пакете драйвера — только с версией (component/build.ps1, #10).
+    [switch]$Release
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,7 +53,7 @@ try {
 } finally { Pop-Location }
 
 Write-Host "== драйвер" -ForegroundColor Cyan
-& (Join-Path $root "component\build.ps1") -Server $Server -LinuxDriver $LinuxDriver
+& (Join-Path $root "component\build.ps1") -Server $Server -LinuxDriver $LinuxDriver -Release:$Release
 $cbuild = Join-Path $env:LOCALAPPDATA "emulkon-build"
 Copy-Item -LiteralPath (Join-Path $root "component\dist\EmulkonDriver_$version.zip") $downloads -Force
 Copy-Item -LiteralPath (Join-Path $cbuild "x64\EmulkonDriver_win64.dll") (Join-Path $downloads "EmulkonDriver_${version}_win64.dll") -Force

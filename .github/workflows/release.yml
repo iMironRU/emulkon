@@ -79,7 +79,7 @@ jobs:
         run: .github/scripts/onec-sdk.ps1 -Required
       - name: Сборка и тесты
         shell: powershell
-        run: .\build.ps1 -LinuxDriver dist-linux\libEmulkonDriver_lin64.so
+        run: .\build.ps1 -LinuxDriver dist-linux\libEmulkonDriver_lin64.so -Release
       - name: Пакеты сервера Linux (.deb, .rpm)
         shell: powershell
         run: .\deploy\linux\package.ps1

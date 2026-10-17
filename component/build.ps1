@@ -11,7 +11,9 @@ param(
     [ValidateSet("x64", "x86", "all")]
     [string]$Arch = "all",
     [string]$Server = "",
-    [string]$LinuxDriver = ""
+    [string]$LinuxDriver = "",
+    # Выпуск: имена библиотек в пакете — только с версией. Иначе к имени добавляется начало SHA-256 библиотеки (#10).
+    [switch]$Release
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,8 +71,14 @@ $info = @"
 # Версия — в имени файла DLL внутри пакета. Тонкий клиент 1С помнит установленные компоненты по
 # имени файла (%APPDATA%\1C\1cv8\ExtCompT\registry.xml) и DLL с тем же именем повторно не ставит:
 # после «Обновить драйвер» в БПО касса работала бы со старой DLL (прогон в Рознице, 2026-10-09).
+# Не выпуск — ещё и начало SHA-256 библиотеки: новая сборка той же версии получает новое имя и ставится, та же
+# библиотека — то же имя (#10). Выпуск (-Release, release.yml) — имя только с версией.
 $packaged = @{}
-foreach ($d in $dlls) { $packaged[$d.FullName] = $d.Name -replace '^(lib)?EmulkonDriver_', ('${1}EmulkonDriver_' + ($version -replace '\.', '_') + '_') }
+foreach ($d in $dlls) {
+    $tag = $version -replace '\.', '_'
+    if (-not $Release) { $tag += "_" + (Get-FileHash -LiteralPath $d.FullName -Algorithm SHA256).Hash.Substring(0, 8).ToLower() }
+    $packaged[$d.FullName] = $d.Name -replace '^(lib)?EmulkonDriver_', ('${1}EmulkonDriver_' + $tag + '_')
+}
 $components = foreach ($d in $dlls) {
     $cpu = if ($d.Name -like "*64*") { "x86_64" } else { "i386" }
     $os = if ($d.Name -like "*_lin*") { "Linux" } else { "Windows" }
