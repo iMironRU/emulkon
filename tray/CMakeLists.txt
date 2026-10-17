@@ -19,12 +19,13 @@ add_library(tray_core STATIC
   src/sse.cpp
   src/config.cpp
   src/stream.cpp
+  src/updates.cpp
   "${COMPONENT_SRC}/json.cpp"
   "${COMPONENT_SRC}/text.cpp")
 target_include_directories(tray_core PUBLIC src "${COMPONENT_SRC}")
 target_compile_definitions(tray_core PUBLIC UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_compile_options(tray_core PUBLIC /utf-8 /EHsc /W3)
-target_link_libraries(tray_core PUBLIC winhttp shell32 ole32)
+target_link_libraries(tray_core PUBLIC winhttp shell32 ole32 bcrypt)
 
 add_executable(EmulkonTray WIN32
   src/main.cpp

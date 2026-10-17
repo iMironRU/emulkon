@@ -6,6 +6,7 @@
 #include "doc.h"
 #include "sse.h"
 #include "stream.h"
+#include "updates.h"
 
 using namespace tray;
 
@@ -116,7 +117,46 @@ static void testPrompt() {
     CHECK(!parseJournalEntry(open, doc));  // запись экрана — не документ
     CHECK(kindTitle("slip") == L"Слип терминала");
 }
+// Новая версия (issue #8): ответ сервера, «свой» сервер и какой установщик трею можно запустить.
+static void testUpdates() {
+    UpdateInfo u;
+    CHECK(parseUpdateState(R"({"current":"0.9.0","mode":"notify","available":true,"page":"https://github.com/iMironRU/emulkon/releases/tag/v0.9.1",)"
+                           R"("installer":"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_0.9.1.exe",)"
+                           R"("latest":{"version":"0.9.1","published":"2026-11-01","sha256":"ABCDEF","url":"https://x/EmulkonSetup_0.9.1.exe"}})",
+                           u));
+    CHECK(u.available && u.version == L"0.9.1" && u.current == L"0.9.0" && u.sha256 == L"abcdef" && u.published == L"2026-11-01");
+    CHECK(u.installer == L"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_0.9.1.exe");
+    CHECK(parseUpdateState(R"({"current":"0.9.0","available":false})", u) && !u.available);
+    CHECK(parseUpdateState(R"({"available":true})", u) && !u.available);  // без версии — нечего предлагать
+    CHECK(!parseUpdateState("не json", u));
+
+    CHECK(isLocalServer(L"http://127.0.0.1:8737") && isLocalServer(L"http://LOCALHOST:8737/") && isLocalServer(L"http://[::1]:8737"));
+    CHECK(!isLocalServer(L"http://kassa-srv:8737") && !isLocalServer(L"http://127.0.0.10:8737") && !isLocalServer(L"http://localhost.evil:8737"));
+
+    const std::wstring pd = L"C:\\ProgramData";
+    CHECK(installerAllowed(L"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_0.9.1.exe", L"0.9.1", pd));
+    CHECK(installerAllowed(L"c:\\programdata\\emulkon\\UPDATES\\EmulkonSetup_0.9.1.exe", L"0.9.1", pd + L"\\"));
+    CHECK(!installerAllowed(L"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_0.9.2.exe", L"0.9.1", pd));  // не та версия
+    CHECK(!installerAllowed(L"C:\\Temp\\EmulkonSetup_0.9.1.exe", L"0.9.1", pd));
+    CHECK(!installerAllowed(L"C:\\ProgramData\\Emulkon\\updates\\..\\..\\evil.exe", L"0.9.1", pd));
+    CHECK(!installerAllowed(L"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_0.9.1.exe", L"0.9.1\\..\\x", pd));
+    CHECK(!installerAllowed(L"", L"0.9.1", pd) && !installerAllowed(L"C:\\ProgramData\\Emulkon\\updates\\EmulkonSetup_.exe", L"", pd));
+
+    wchar_t tmp[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    const std::wstring f = std::wstring(tmp) + L"emulkon-tray-sha.txt";
+    FILE* fp = _wfopen(f.c_str(), L"wb");
+    if (fp) {
+        std::fputs("abc", fp);
+        std::fclose(fp);
+    }
+    CHECK(fileSha256(f) == L"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");  // SHA-256("abc")
+    DeleteFileW(f.c_str());
+    CHECK(fileSha256(f).empty());
+}
+
 int main() {
+    testUpdates();
     testSse();
     testPrompt();
     testDoc();

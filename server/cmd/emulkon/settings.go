@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"emulkon/internal/secret"
+	"emulkon/internal/updates"
 )
 
 // Значения реестра (имена — как в документе).
@@ -24,6 +25,8 @@ const (
 	regLogLevel     = "LogLevel"
 	regControlHash  = "ControlTokenHash"
 	regDeviceHash   = "DeviceTokenHash"
+	regUpdateMode   = "UpdateMode" // off | notify (по умолчанию) — docs/local-install.md §2.3
+	regUpdateURL    = "UpdateURL"  // свой latest.json вместо выпусков GitHub
 )
 
 const (
@@ -43,6 +46,8 @@ type settings struct {
 	ControlToken  secret.Token
 	DeviceToken   secret.Token
 	Service       bool
+	UpdateMode    string            // off | notify
+	UpdateURL     string            // latest.json; пусто — выпуски GitHub
 	Sources       map[string]string // имя настройки → flag | env | registry | default
 
 	DefaultTimeout      time.Duration
@@ -107,6 +112,11 @@ func resolve(f flags, reg registryValues, exe string) (settings, error) {
 		s.DownloadsDirs = defaultDownloadsDirs(exe)
 	}
 	s.LogLevel = pick("log_level", "", "", "EMULKON_LOG_LEVEL", regLogLevel, "info")
+	s.UpdateMode = strings.ToLower(pick("update_mode", "", "", "EMULKON_UPDATE_MODE", regUpdateMode, updates.ModeNotify))
+	if !updates.ValidMode(s.UpdateMode) {
+		return s, fmt.Errorf("режим обновлений %q (%s): допустимо off или notify", s.UpdateMode, s.Sources["update_mode"])
+	}
+	s.UpdateURL = pick("update_url", "", "", "EMULKON_UPDATE_URL", regUpdateURL, "")
 
 	var err error
 	if s.ControlToken, err = token("control_token", "EMULKON_CONTROL_TOKEN", reg[regControlHash], &s); err != nil {
@@ -163,6 +173,16 @@ func defaultDataDir(service bool) string {
 		}
 	}
 	return "data"
+}
+
+// updatesDir — куда служба Windows скачивает установщик новой версии: %ProgramData%\Emulkon\updates (у LocalService
+// туда есть запись — установщик). Не служба, не Windows (Docker, пакеты Linux) — пусто: только сообщить о выпуске.
+func updatesDir(s settings) string {
+	pd := os.Getenv("ProgramData")
+	if !s.Service || pd == "" {
+		return ""
+	}
+	return filepath.Join(pd, "Emulkon", "updates")
 }
 
 // logsDir — каталог лога службы: %ProgramData%\Emulkon\logs (рядом с data по умолчанию).

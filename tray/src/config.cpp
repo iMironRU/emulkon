@@ -29,6 +29,7 @@ const struct {
     {"ServerData", &Config::serverData, nullptr, nullptr},
     {"ServerListen", &Config::serverListen, nullptr, nullptr},
     {"ServerAutostart", nullptr, &Config::serverAutostart, nullptr},
+    {"UpdateNotified", &Config::updateNotified, nullptr, nullptr},
 };
 
 std::string trim(std::string s) {

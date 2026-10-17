@@ -286,8 +286,14 @@ static void testMaintenance() {
         R"({"format":"emulkon-settings","version":1,"server":{"DeviceTokenHash":"emk_секрет"}})",
         R"({"format":"emulkon-settings","version":1,"server":{"Addr":"8737"}})",
         R"({"format":"emulkon-settings","version":1,"server":{"DataDir":"C:\\a\nb"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"UpdateMode":"auto"}})",
+        R"({"format":"emulkon-settings","version":1,"server":{"UpdateURL":"ftp://x/latest.json"}})",
     };
     for (const char* b : bad) CHECK(!parseSettingsFile(b, out, warnings, err));
+    // Обновления (issue #8): режим и свой latest.json переносятся вместе с остальными настройками.
+    CHECK(parseSettingsFile(R"({"format":"emulkon-settings","version":1,"server":{"UpdateMode":"OFF","UpdateURL":"https://x/latest.json"}})",
+                            out, warnings, err));
+    CHECK(out.size() == 2 && out[0].text == L"off" && out[1].text == L"https://x/latest.json" && warnings.empty());
 }
 
 int main() {
