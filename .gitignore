@@ -36,3 +36,5 @@ mcp-server.log*
 
 # SDK Native API 1С (распространяет 1С) — локально или из секрета CI
 /third_party/onec-sdk/
+/deploy/docker/downloads/*
+!/deploy/docker/downloads/README.md

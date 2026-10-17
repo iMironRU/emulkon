@@ -25,3 +25,5 @@ if ($ChangesOnly) { return }
 ""
 "**Сервер для Linux** (x86_64, systemd): ``sudo apt install ./emulkon_$Version-1_amd64.deb`` или"
 "``sudo dnf install ./emulkon-$Version-1.x86_64.rpm`` — служба ``emulkon``, веб-интерфейс http://127.0.0.1:8737/."
+""
+"**Docker** (общий сервер для команды): ``docker run -d -p 8737:8737 -e EMULKON_DEVICE_TOKEN=… -e EMULKON_CONTROL_TOKEN=… -v emulkon-data:/data ghcr.io/imironru/emulkon:$Version``"

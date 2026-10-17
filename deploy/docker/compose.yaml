@@ -1,4 +1,6 @@
-# Локальный или стендовый запуск: docker compose -f deploy/docker/compose.yaml up --build
+# Общий сервер для команды (несколько разработчиков — у каждого своё рабочее место в 1С; устройства, журнал и
+# сценарии видны всем, токены закрывают доступ): готовый образ — image: ghcr.io/imironru/emulkon:<версия>,
+# локальная сборка — docker compose -f deploy/docker/compose.yaml up --build.
 # Токены задать в .env рядом с файлом или в окружении (Coolify — в настройках сервиса).
 services:
   emulkon:
