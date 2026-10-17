@@ -114,7 +114,7 @@ users:
 ssh_pwauth: false
 package_update: true
 packages:
-  - linux-cloud-tools-virtual
+  - linux-cloud-tools-virtual  # KVP: адрес ВМ в Hyper-V (имя в сети и так есть: emulkon-linux.mshome.net)
   - xvfb
   - xauth
   - unzip
@@ -122,8 +122,6 @@ packages:
   - libgtk-3-0t64
 locale: ru_RU.UTF-8
 timezone: Asia/Yekaterinburg
-runcmd:
-  - [systemctl, enable, --now, hv-kvp-daemon.service]
 "@
     $tmp = Join-Path $vmDir "cloud-init"
     New-Item -ItemType Directory -Force $tmp | Out-Null

@@ -25,7 +25,10 @@ if ($Put) {
 } elseif ($Get) {
     & scp.exe @opts "emulkon@${HostName}:$($Get[0])" $(if ($Get.Count -gt 1) { $Get[1] } else { "." })
 } elseif ($Command) {
-    & ssh.exe @opts "emulkon@$HostName" $Command
+    # Windows PowerShell 5.1 портит кавычки в аргументах нативных программ — команда уходит в base64 (UTF-8, LF).
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command.Replace("`r`n", "`n")))
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    & ssh.exe @opts "emulkon@$HostName" "echo $b64 | base64 -d | bash"
 } else {
     throw "Укажите команду, -Put или -Get"
 }
