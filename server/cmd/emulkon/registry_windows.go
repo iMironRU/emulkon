@@ -18,7 +18,8 @@ const (
 // readRegistry читает известные значения из HKLM; отсутствующие ключи и значения — пусто.
 func readRegistry() registryValues {
 	out := registryValues{}
-	names := []string{regAddr, regNetwork, regDataDir, regDownloadsDir, regLogLevel, regControlHash, regDeviceHash}
+	names := []string{regAddr, regNetwork, regDataDir, regDownloadsDir, regLogLevel, regControlHash, regDeviceHash,
+		regUpdateMode, regUpdateURL}
 	for _, key := range []string{regKeyServer, regKeyPolicy} {
 		for name, v := range readKey(key, names) {
 			out[name] = v

@@ -311,7 +311,9 @@ data: {"event_id":"dlzhspvu1hs4.1","time":"…","name":"Barcode","data":"4600000
 - `direction`: `in` — команда от компоненты, `out` — ответ, `event` — событие к компоненте (§1.4),
   `system` — служебное: `session.open` (в т.ч. отказы, с полем `payload.rejected`),
   `session.closed`, `session.expired`, `control.reset`, `control.set_state`, `control.device_meta` и
-  `control.workstation_meta` (подпись, заметка, вывод — что изменено) и **`device.print`** — документ,
+  `control.workstation_meta` (подпись, заметка, вывод — что изменено), `update.check` (проверка выпусков: что нашли
+  или почему не вышло) и `update.available` (новая версия — один раз на версию, `GET /api/v1/updates`) и
+  **`device.print`** — документ,
   «напечатанный» устройством во время команды. В `payload` — документ целиком (`kind`,
   `number`, `time`, `lines`…; у пакета этикеток принтера этикеток ещё `layout` — разметка и
   значения полей для просмотра), `correlation_id` = `request_id` команды. Пишется между `in` и

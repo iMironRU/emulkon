@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"emulkon/internal/secret"
@@ -10,7 +11,8 @@ import (
 
 func clearEnv(t *testing.T) {
 	for _, k := range []string{"EMULKON_ADDR", "EMULKON_DATA_DIR", "EMULKON_DOWNLOADS_DIR", "EMULKON_LOG_LEVEL",
-		"EMULKON_CONTROL_TOKEN", "EMULKON_CONTROL_TOKEN_HASH", "EMULKON_DEVICE_TOKEN", "EMULKON_DEVICE_TOKEN_HASH"} {
+		"EMULKON_CONTROL_TOKEN", "EMULKON_CONTROL_TOKEN_HASH", "EMULKON_DEVICE_TOKEN", "EMULKON_DEVICE_TOKEN_HASH",
+		"EMULKON_UPDATE_MODE", "EMULKON_UPDATE_URL"} {
 		t.Setenv(k, "")
 	}
 }
@@ -88,5 +90,33 @@ func TestDefaultDownloadsDirs(t *testing.T) {
 	}
 	if got := splitList("a" + string(os.PathListSeparator) + " " + string(os.PathListSeparator) + "b"); len(got) != 2 {
 		t.Fatalf("список: %v", got)
+	}
+}
+
+// Обновления (issue #8): по умолчанию notify; режим из реестра или окружения; неверный режим — ошибка запуска.
+func TestResolveUpdates(t *testing.T) {
+	clearEnv(t)
+	f, _ := parseFlags(nil)
+	s, err := resolve(f, registryValues{}, "")
+	if err != nil || s.UpdateMode != "notify" || s.UpdateURL != "" || s.Sources["update_mode"] != "default" {
+		t.Fatalf("по умолчанию: %+v, %v", s, err)
+	}
+	s, err = resolve(f, registryValues{regUpdateMode: "OFF", regUpdateURL: "https://example.org/latest.json"}, "")
+	if err != nil || s.UpdateMode != "off" || s.UpdateURL != "https://example.org/latest.json" {
+		t.Fatalf("реестр: %+v, %v", s, err)
+	}
+	t.Setenv("EMULKON_UPDATE_MODE", "auto")
+	if _, err := resolve(f, registryValues{}, ""); err == nil || !strings.Contains(err.Error(), "off или notify") {
+		t.Fatalf("неверный режим: %v", err)
+	}
+}
+
+func TestUpdatesDir(t *testing.T) {
+	t.Setenv("ProgramData", `C:\ProgramData`)
+	if d := updatesDir(settings{Service: true}); d != filepath.Join(`C:\ProgramData`, "Emulkon", "updates") {
+		t.Fatalf("служба: %q", d)
+	}
+	if d := updatesDir(settings{Service: false}); d != "" {
+		t.Fatalf("не служба — не скачивать: %q", d)
 	}
 }

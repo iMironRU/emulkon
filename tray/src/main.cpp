@@ -28,6 +28,7 @@
 #include "doc.h"
 #include "stream.h"
 #include "ui.h"
+#include "updates.h"
 
 using namespace tray;
 
@@ -42,6 +43,8 @@ const UINT WM_APP_PROMPT = WM_APP + 5;   // lParam = PromptEvent* — экран
 const UINT WM_APP_ANSWER = WM_APP + 6;   // wParam = ok, lParam = std::wstring* — ответ с экрана отправлен
 const UINT WM_APP_LOG = WM_APP + 7;      // lParam = std::wstring* — строка лога из фонового потока
 const UINT WM_APP_SERVICE = WM_APP + 8;  // lParam = ServiceResult* — запуск или остановка службы закончены
+const UINT WM_APP_UPDATE = WM_APP + 9;   // lParam = UpdateInfo* — ответ сервера о новой версии (issue #8)
+const UINT_PTR kTimerUpdates = 1;         // проверка новой версии: через 30 с после запуска, затем раз в час
 
 enum Cmd : UINT {
     kCmdShowLast = 100,
@@ -60,6 +63,7 @@ enum Cmd : UINT {
     kCmdServiceStart,
     kCmdServiceStop,
     kCmdMaintain,
+    kCmdUpdate,
 };
 
 struct App {
@@ -82,6 +86,7 @@ struct App {
     bool serverAutostartTried = false;   // автозапуск сервера — один раз за запуск трея
     bool serviceBusy = false;            // идёт запуск или остановка службы
     bool everConnected = false;          // трей уже был на связи с сервером
+    UpdateInfo update;                   // новая версия по ответу сервера (GET /api/v1/updates)
 };
 
 App g;
@@ -476,12 +481,63 @@ void save() {
     if (!saveConfig(g.configPath, g.cfg)) balloon(L"Эмулкон", L"Не удалось сохранить настройки: " + g.configPath);
 }
 
+// --- новая версия (docs/local-install.md §2.3, issue #8) ---
+
+// checkUpdatesAsync — GET /api/v1/updates в фоне; ответ — WM_APP_UPDATE. Сервер сам проверяет выпуски раз в сутки.
+void checkUpdatesAsync() {
+    std::wstring url = g.cfg.serverUrl;
+    while (!url.empty() && url.back() == L'/') url.pop_back();
+    url += L"/api/v1/updates";
+    HWND hwnd = g.hwnd;
+    std::thread([url, hwnd] {
+        HttpResult r = httpGet(url, L"", 10000);
+        auto* info = new UpdateInfo();
+        if (r.status != 200 || !parseUpdateState(r.body, *info)) *info = UpdateInfo{};
+        PostMessageW(hwnd, WM_APP_UPDATE, 0, reinterpret_cast<LPARAM>(info));
+    }).detach();
+}
+
+// onUpdate — новая версия: пункт меню; уведомление — один раз на версию (помнит настройка UpdateNotified).
+void onUpdate(const UpdateInfo& info) {
+    g.update = info;
+    if (!info.available || info.version == g.cfg.updateNotified) return;
+    balloon(L"Эмулкон: вышла версия " + info.version,
+            info.installer.empty() || !isLocalServer(g.cfg.serverUrl)
+                ? L"Что нового и установщик — на странице выпуска: «Обновить до " + info.version + L"…» в меню значка."
+                : L"Установщик уже скачан: «Обновить до " + info.version + L"…» в меню значка.");
+    g.cfg.updateNotified = info.version;
+    save();
+}
+
+// runUpdate — запустить установщик, скачанный службой этого компьютера (мастер обновления, UAC), если он
+// там, где служба его кладёт, и SHA-256 совпала с описанием выпуска; иначе — страница выпуска.
+void runUpdate() {
+    const UpdateInfo u = g.update;
+    if (!u.available) return;
+    wchar_t pd[MAX_PATH] = {};
+    GetEnvironmentVariableW(L"ProgramData", pd, MAX_PATH);
+    if (isLocalServer(g.cfg.serverUrl) && !u.installer.empty()) {
+        if (installerAllowed(u.installer, u.version, pd) && !u.sha256.empty() && fileSha256(u.installer) == u.sha256) {
+            logLine(L"обновление: запуск " + u.installer);
+            ShellExecuteW(nullptr, L"open", u.installer.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        logLine(L"обновление: установщик не прошёл проверку — " + u.installer);
+        balloon(L"Эмулкон", L"Скачанный установщик не прошёл проверку (место или SHA-256) — открываю страницу выпуска.");
+    }
+    if (u.page.rfind(L"https://", 0) == 0) ShellExecuteW(nullptr, L"open", u.page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 void showMenu() {
     HMENU menu = CreatePopupMenu();
     std::wstring head = g.connected ? L"Эмулкон — на связи" : L"Эмулкон — " + g.status;
     AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, head.c_str());
     std::wstring ws = L"Рабочее место: " + effectiveWorkstation(g.cfg) + L" · " + g.cfg.serverUrl;
     AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, ws.c_str());
+    if (g.update.available) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING | MF_DEFAULT, kCmdUpdate, (L"Обновить до " + g.update.version + L"…").c_str());
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (g.hasLast ? 0 : MF_GRAYED), kCmdShowLast, L"Показать последний чек");
     AppendMenuW(menu, MF_STRING, kCmdOpenWeb, L"Открыть веб-интерфейс");
@@ -566,6 +622,9 @@ void command(UINT id) {
             return;
         case kCmdServiceStop:
             serviceAsync(true, false);
+            return;
+        case kCmdUpdate:
+            runUpdate();
             return;
         case kCmdMaintain: {
             std::wstring exe = setupExe();  // мастер попросит права администратора (UAC)
@@ -687,6 +746,18 @@ LRESULT CALLBACK mainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         }
+        case WM_APP_UPDATE: {
+            std::unique_ptr<UpdateInfo> info(reinterpret_cast<UpdateInfo*>(lp));
+            onUpdate(*info);
+            return 0;
+        }
+        case WM_TIMER:
+            if (wp == kTimerUpdates) {
+                SetTimer(hwnd, kTimerUpdates, 60 * 60 * 1000, nullptr);  // дальше — раз в час
+                checkUpdatesAsync();
+                return 0;
+            }
+            break;
         case WM_APP_ANSWER: {
             std::unique_ptr<std::wstring> msg(reinterpret_cast<std::wstring*>(lp));
             g.terminal.answerSent(wp != 0, *msg);
@@ -894,6 +965,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     g.iconOff = makeIcon(false, iconSize);
     addIcon();
     startStream();
+    SetTimer(g.hwnd, kTimerUpdates, 30 * 1000, nullptr);  // новая версия: первый раз через 30 с
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

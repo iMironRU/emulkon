@@ -301,8 +301,9 @@ bool runInstaller(const std::wstring& path, std::wstring& err) {
 // --- Настройки службы ---
 
 const std::vector<std::wstring>& settingNames() {
-    static const std::vector<std::wstring> names = {L"Addr",     L"Network",          L"DataDir",        L"DownloadsDir",
-                                                    L"LogLevel", L"ControlTokenHash", L"DeviceTokenHash"};
+    static const std::vector<std::wstring> names = {L"Addr",     L"Network",          L"DataDir",         L"DownloadsDir",
+                                                    L"LogLevel", L"ControlTokenHash", L"DeviceTokenHash", L"UpdateMode",
+                                                    L"UpdateURL"};
     return names;
 }
 
@@ -383,6 +384,19 @@ bool parseSettingsFile(const std::string& text, std::vector<Setting>& out, std::
                 return false;
             }
             s.text = widen(l);
+        } else if (name == L"UpdateMode") {
+            const std::string m = lower(v.text);
+            if (m != "off" && m != "notify") {
+                err = L"UpdateMode — off или notify";
+                return false;
+            }
+            s.text = widen(m);
+        } else if (name == L"UpdateURL") {
+            if (!v.text.empty() && v.text.rfind("https://", 0) != 0 && v.text.rfind("http://", 0) != 0) {
+                err = L"UpdateURL — адрес latest.json (http:// или https://)";
+                return false;
+            }
+            s.text = widen(v.text);
         } else if (name == L"Addr") {
             if (v.text.find(':') == std::string::npos || v.text.find(' ') != std::string::npos) {
                 err = L"Addr — адрес вида 127.0.0.1:8737";
