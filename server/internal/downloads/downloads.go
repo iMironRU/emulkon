@@ -40,6 +40,8 @@ var (
 const (
 	ArchX64 = "x86_64"
 	ArchX86 = "i386"
+	// ArchARM64 — драйвер Linux ARM64 (issue #12): принимается, но файлов для него пока нет — «обновления нет».
+	ArchARM64 = "aarch64"
 )
 
 // ОС драйвера: в имени файла (_win…dll, _lin…so) и в запросе обновления. Без ОС — Windows: так
@@ -421,8 +423,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "version: "+err.Error())
 		return
 	}
-	if arch != ArchX64 && arch != ArchX86 {
-		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "arch: ожидается x86_64 или i386")
+	if arch != ArchX64 && arch != ArchX86 && arch != ArchARM64 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "arch: ожидается x86_64, i386 или aarch64")
 		return
 	}
 	resp := UpdateResponse{Current: cur}

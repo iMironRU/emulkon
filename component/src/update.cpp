@@ -131,7 +131,19 @@ UpdateOffer parseUpdateOffer(const Json* j) {
     return o;
 }
 
-const char* driverArch() { return sizeof(void*) == 8 ? "x86_64" : "i386"; }
+// driverArch — архитектура этой сборки для сервера (driver_arch, arch=). По компилятору, а не по разрядности:
+// драйвер ARM64 не должен назваться x86_64 и получить чужую библиотеку самообновления (issue #12).
+const char* driverArch() {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "aarch64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "i386";
+#else
+#error "неизвестная архитектура: добавьте её в driverArch и на сервер (downloads.go)"
+#endif
+}
 
 std::vector<std::string> newerVersions(const std::vector<std::string>& names, const std::string& own) {
     std::vector<std::string> out;

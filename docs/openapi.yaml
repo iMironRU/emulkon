@@ -103,7 +103,7 @@ paths:
       security: []
       parameters:
         - { name: version, in: query, required: true, schema: { type: string, examples: [0.2.0] } }
-        - { name: arch, in: query, required: true, schema: { type: string, enum: [x86_64, i386] } }
+        - { name: arch, in: query, required: true, schema: { type: string, enum: [x86_64, i386, aarch64] } }
         - name: os
           in: query
           description: ОС драйвера; без параметра — windows (драйверы до 0.9.0)
@@ -938,7 +938,7 @@ components:
         driver_version: { type: string, examples: [0.2.0] }
         driver_arch:
           type: string
-          enum: [x86_64, i386]
+          enum: [x86_64, i386, aarch64]
           description: Архитектура DLL драйвера — по ней сервер предлагает обновление (driver_update)
         driver_os:
           type: string

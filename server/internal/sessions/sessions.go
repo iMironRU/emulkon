@@ -65,7 +65,7 @@ type OpenRequest struct {
 	// или русское написание), как его передала БПО в ConnectEquipment.
 	EquipmentType string `json:"equipment_type"`
 	DriverVersion string `json:"driver_version"`
-	// DriverArch — архитектура DLL драйвера (x86_64, i386): по ней сервер предлагает обновление.
+	// DriverArch — архитектура DLL драйвера (x86_64, i386, aarch64): по ней сервер предлагает обновление.
 	DriverArch string `json:"driver_arch,omitempty"`
 	// DriverOS — ОС драйвера (windows, linux); пусто — windows (драйверы до 0.9.0).
 	DriverOS string `json:"driver_os,omitempty"`

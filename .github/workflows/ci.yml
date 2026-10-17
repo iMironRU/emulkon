@@ -45,23 +45,36 @@ jobs:
           go test ./...
 
   linux-driver:
-    name: Linux — драйвер (.so)
-    runs-on: ubuntu-latest
+    name: Linux — драйвер (.so${{ matrix.arch == 'aarch64' && ', ARM64' || '' }})
     # manylinux_2_28 (AlmaLinux 8, glibc 2.28, GCC из gcc-toolset): собранная здесь библиотека работает на
     # Astra 1.7, РЕД ОС, Альт, Ubuntu 20.04 и новее. Debian 11 не годится: его security-архив снят.
-    container: quay.io/pypa/manylinux_2_28_x86_64
+    # ARM64 (issue #12) — сборка и тесты на ARM-раннере; в пакет драйвера не входит, пока не подтверждено значение
+    # arch в MANIFEST.XML для Linux ARM в настоящей 1С.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            artifact: linux-driver
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            artifact: linux-driver-arm64
+    runs-on: ${{ matrix.runner }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
     steps:
       - name: Инструменты сборки
         run: |
           dnf install -y -q unzip git binutils libuuid-devel glibc-langpack-ru > /dev/null  # uuid/uuid.h — для com.h из SDK 1С; ru_RU — тест чисел при русской локали
           # CMake — официальная сборка Kitware с проверкой SHA-256: версия не зависит от образа.
           v=3.30.5
+          a=$(uname -m)
           cd /tmp
-          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-linux-x86_64.tar.gz"
+          curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-linux-$a.tar.gz"
           curl -fsSLO "https://github.com/Kitware/CMake/releases/download/v$v/cmake-$v-SHA-256.txt"
-          grep "cmake-$v-linux-x86_64.tar.gz" "cmake-$v-SHA-256.txt" | sha256sum -c -
-          tar -xzf "cmake-$v-linux-x86_64.tar.gz" -C /opt
-          ln -sf "/opt/cmake-$v-linux-x86_64/bin/"* /usr/local/bin/
+          grep "cmake-$v-linux-$a.tar.gz" "cmake-$v-SHA-256.txt" | sha256sum -c -
+          tar -xzf "cmake-$v-linux-$a.tar.gz" -C /opt
+          ln -sf "/opt/cmake-$v-linux-$a/bin/"* /usr/local/bin/
           cmake --version | head -n 1
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -75,7 +88,7 @@ jobs:
       - name: Драйвер Linux
         uses: actions/upload-artifact@v7
         with:
-          name: linux-driver
+          name: ${{ matrix.artifact }}
           path: dist-linux/
           if-no-files-found: ignore
           retention-days: 14
