@@ -182,6 +182,8 @@ $seed = Join-Path $vmDir "seed.iso"
 New-Seed $seed
 New-VM -Name $Name -Generation 2 -MemoryStartupBytes ($MemoryGB * 1GB) -VHDPath $disk -SwitchName $Switch -Path $Root | Out-Null
 Set-VM -Name $Name -ProcessorCount $Cpu -AutomaticCheckpointsEnabled $false
+# Память постоянная: с динамической (так New-VM создаёт ВМ поколения 2) гостю под 1С давали 1,4 ГБ из 8 — он вставал.
+Set-VMMemory -VMName $Name -DynamicMemoryEnabled $false -StartupBytes ($MemoryGB * 1GB)
 Set-VMFirmware -VMName $Name -SecureBootTemplate MicrosoftUEFICertificateAuthority
 Add-VMDvdDrive -VMName $Name -Path $seed
 Set-VMFirmware -VMName $Name -FirstBootDevice (Get-VMHardDiskDrive -VMName $Name)

@@ -1,4 +1,5 @@
 // Модульные тесты ядра компоненты: JSON, текст, параметры подключения, таблица методов.
+#include <clocale>
 #include <cstdio>
 #include <filesystem>
 #include <set>
@@ -68,6 +69,29 @@ static void testJson() {
     CHECK(Json::string("a\nb").dump() == "\"a\\nb\"");
     CHECK(Json::numberRaw("1.0") == Json::numberRaw("1"));  // сравнение чисел — по значению
     CHECK(Json::string("1") != Json::numberRaw("1"));
+}
+
+// Числа JSON не зависят от локали процесса: клиент 1С под Linux включает локаль системы (ru_RU — десятичная
+// запятая), и вес 0,532 приходил в 1С нулём. Нет такой локали в системе — проверка без неё.
+static void testJsonLocale() {
+    const char* names[] = {"ru_RU.UTF-8", "ru_RU.utf8", "de_DE.UTF-8", "Russian_Russia.1251", "ru-RU"};
+    const char* set = nullptr;
+    for (const char* n : names)
+        if ((set = std::setlocale(LC_NUMERIC, n)) != nullptr) break;
+    if (set) {
+        char probe[16];
+        std::snprintf(probe, sizeof probe, "%.1f", 0.5);
+        std::printf("локаль чисел %s: printf пишет «%s»\n", set, probe);
+    }
+    CHECK(Json::number(0.532).text == "0.532");
+    CHECK(Json::number(-12.25).text == "-12.25");
+    Json w;
+    std::string err;
+    CHECK(parseJson("{\"weight\":0.777,\"big\":1.5e3}", w, err));
+    CHECK(w.get("weight") && w.get("weight")->asDouble() == 0.777);
+    CHECK(w.get("big") && w.get("big")->asDouble() == 1500 && w.get("big")->asInt() == 1500);
+    CHECK(Json::number(0.1 + 0.2).dump() == "0.30000000000000004");
+    std::setlocale(LC_NUMERIC, "C");
 }
 
 static void testInfobase() {
@@ -406,6 +430,7 @@ static void testHttpClient() {}  // WinHTTP проверяют стенд (harne
 
 int main() {
     testJson();
+    testJsonLocale();
     testText();
     testInfobase();
     testMethods();
