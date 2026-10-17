@@ -19,7 +19,7 @@
 
 param(
     [string]$Name,
-    [string]$Root = "C:\.Hyper-V\Emulkon",
+    [string]$Root = "D:\.Hyper-V\Emulkon",  # ВМ и образы — только на D: (решение владельца 2026-10-17)
     [string]$Release = "noble",  # кодовое имя Ubuntu: noble — 24.04 LTS, jammy — 22.04 LTS
     [int]$Cpu = 4,
     [int]$MemoryGB = 8,
