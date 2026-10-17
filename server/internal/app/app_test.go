@@ -188,6 +188,18 @@ func TestKKTEndToEnd(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("вывод устройства: %d", res.StatusCode)
 	}
+	// Подписи и вывод — в журнале (всё в журнале): одна запись — отклонённый запрос не пишется.
+	_, j = call(t, srv, "GET", "/control/v1/journal?method=control.device_meta", nil, nil)
+	if e := j["entries"].([]any); len(e) != 1 || e[0].(map[string]any)["device_id"] != dev || e[0].(map[string]any)["workstation_id"] != "KASSA-01" {
+		t.Fatalf("control.device_meta: %v", j)
+	}
+	if res, _ := call(t, srv, "PATCH", "/control/v1/workstations/KASSA-01", nil, map[string]any{"alias": "Касса у окна"}); res.StatusCode != http.StatusOK {
+		t.Fatalf("подпись рабочего места: %d", res.StatusCode)
+	}
+	_, j = call(t, srv, "GET", "/control/v1/journal?method=control.workstation_meta&workstation_id=KASSA-01", nil, nil)
+	if e := j["entries"].([]any); len(e) != 1 || !strings.Contains(fmt.Sprint(e[0].(map[string]any)["payload"]), "Касса у окна") {
+		t.Fatalf("control.workstation_meta: %v", j)
+	}
 	res, rp := call(t, srv, "POST", "/control/v1/devices/"+dev+"/reprint", nil, nil)
 	if res.StatusCode != http.StatusOK || rp["kind"] != "check" {
 		t.Fatalf("повторная печать: %d %v", res.StatusCode, rp)

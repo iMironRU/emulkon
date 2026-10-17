@@ -309,7 +309,8 @@ data: {"event_id":"dlzhspvu1hs4.1","time":"…","name":"Barcode","data":"4600000
 - `seq` — монотонный номер, переживает перезапуск; это курсор для чтения и потока.
 - `direction`: `in` — команда от компоненты, `out` — ответ, `event` — событие к компоненте (§1.4),
   `system` — служебное: `session.open` (в т.ч. отказы, с полем `payload.rejected`),
-  `session.closed`, `session.expired`, `control.reset`, `control.set_state` и **`device.print`** — документ,
+  `session.closed`, `session.expired`, `control.reset`, `control.set_state`, `control.device_meta` и
+  `control.workstation_meta` (подпись, заметка, вывод — что изменено) и **`device.print`** — документ,
   «напечатанный» устройством во время команды. В `payload` — документ целиком (`kind`,
   `number`, `time`, `lines`…; у пакета этикеток принтера этикеток ещё `layout` — разметка и
   значения полей для просмотра), `correlation_id` = `request_id` команды. Пишется между `in` и
