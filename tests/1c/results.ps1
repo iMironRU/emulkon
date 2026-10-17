@@ -12,6 +12,7 @@ $Configs = [ordered]@{
     "retail2326"  = "Розница 2.3.26"
     "retail3"     = "Розница 3.0"
     "unf"         = "УНФ 3.0"
+    "unf-linux"   = "УНФ 3.0 · Linux"  # отчёт tests/linux/run-1c.ps1 — скопировать в build/report-unf-linux.txt
     "rmk"         = "РМК 1.1"
     "ut115"       = "УТ 11.5"
     "ut116"       = "УТ 11.6"
