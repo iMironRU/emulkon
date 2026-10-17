@@ -186,7 +186,7 @@ jobs:
         run: |
           docker run -d --name emulkon -p 8737:8737 -e EMULKON_CONTROL_TOKEN=ci-control -e EMULKON_DEVICE_TOKEN=ci-device emulkon:ci
           for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8737/api/v1/health > /dev/null 2>&1 && break; sleep 1; done
-          curl -fsS http://127.0.0.1:8737/api/v1/health; echo
+          curl -fsS http://127.0.0.1:8737/api/v1/health || { docker logs emulkon; exit 1; }; echo
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8737/control/v1/info)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer ci-control' http://127.0.0.1:8737/control/v1/info)" = 200
           catalog=$(curl -fsS http://127.0.0.1:8737/api/v1/downloads)

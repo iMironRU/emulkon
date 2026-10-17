@@ -152,7 +152,7 @@ jobs:
           # Тот же запуск, что в CI: сервер отвечает, драйвер Windows и Linux — в каталоге загрузок.
           docker run -d --name emulkon -p 8737:8737 -e EMULKON_CONTROL_TOKEN=release -e EMULKON_DEVICE_TOKEN=release "$image:$v"
           for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8737/api/v1/health > /dev/null 2>&1 && break; sleep 1; done
-          curl -fsS http://127.0.0.1:8737/api/v1/health | grep -q "\"version\":\"$v\""
+          curl -fsS http://127.0.0.1:8737/api/v1/health | grep -q "\"version\":\"$v\"" || { docker logs emulkon; exit 1; }
           catalog=$(curl -fsS http://127.0.0.1:8737/api/v1/downloads)
           echo "$catalog" | grep -q '"os":"linux"'
           echo "$catalog" | grep -q '"os":"windows"'
