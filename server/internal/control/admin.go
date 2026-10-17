@@ -25,7 +25,7 @@ func adminError(w http.ResponseWriter, err error, what string) {
 	}
 }
 
-// deviceMeta — PATCH /control/v1/devices/{id} {"alias", "note"}.
+// deviceMeta — PATCH /control/v1/devices/{id} {"alias", "note", "output"}; в журнал — control.device_meta.
 func (a *API) deviceMeta(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("device_id")
 	var mt sessions.Meta
@@ -37,6 +37,9 @@ func (a *API) deviceMeta(w http.ResponseWriter, r *http.Request) {
 		adminError(w, err, "устройство "+id)
 		return
 	}
+	d, _ := a.sess.Device(id)
+	a.journal(journal.Entry{DeviceID: id, WorkstationID: d.WorkstationID, Direction: journal.DirSystem,
+		Method: "control.device_meta", Payload: mustJSON(map[string]any{"meta": mt, "remote_addr": r.RemoteAddr})})
 	info, _ := a.sess.DeviceInfo(id)
 	httpx.WriteJSON(w, http.StatusOK, info)
 }
@@ -77,6 +80,7 @@ func (a *API) workstations(w http.ResponseWriter, _ *http.Request) {
 }
 
 // workstationMeta — PATCH /control/v1/workstations/{id} {"alias", "note"}; неизвестное место заводится.
+// В журнал — control.workstation_meta.
 func (a *API) workstationMeta(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("workstation_id")
 	var mt sessions.Meta
@@ -88,6 +92,8 @@ func (a *API) workstationMeta(w http.ResponseWriter, r *http.Request) {
 		adminError(w, err, "рабочее место "+id)
 		return
 	}
+	a.journal(journal.Entry{WorkstationID: id, Direction: journal.DirSystem, Method: "control.workstation_meta",
+		Payload: mustJSON(map[string]any{"meta": mt, "remote_addr": r.RemoteAddr})})
 	for _, ws := range a.sess.Workstations() {
 		if ws.WorkstationID == id {
 			httpx.WriteJSON(w, http.StatusOK, ws)

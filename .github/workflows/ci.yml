@@ -38,6 +38,11 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+      - name: vmtool (ВМ для проверки под Linux)
+        working-directory: tests/linux/vmtool
+        run: |
+          go vet ./...
+          go test ./...
 
   linux-driver:
     name: Linux — драйвер (.so)
@@ -48,7 +53,7 @@ jobs:
     steps:
       - name: Инструменты сборки
         run: |
-          dnf install -y -q unzip git binutils libuuid-devel > /dev/null  # uuid/uuid.h — для com.h из SDK 1С
+          dnf install -y -q unzip git binutils libuuid-devel glibc-langpack-ru > /dev/null  # uuid/uuid.h — для com.h из SDK 1С; ru_RU — тест чисел при русской локали
           # CMake — официальная сборка Kitware с проверкой SHA-256: версия не зависит от образа.
           v=3.30.5
           cd /tmp
@@ -160,3 +165,35 @@ jobs:
             emulkon -version
             rpm -V emulkon
             rpm -e emulkon'
+
+  docker:
+    name: Docker — образ сервера
+    runs-on: ubuntu-latest
+    needs: windows
+    steps:
+      - uses: actions/checkout@v7
+      - name: Драйвер из сборки Windows
+        uses: actions/download-artifact@v4
+        continue-on-error: true  # нет SDK 1С (pull request из форка) — образ без драйвера
+        with:
+          name: emulkon-${{ github.sha }}
+          path: deploy/docker/downloads
+      - name: Сборка образа
+        run: |
+          ls -la deploy/docker/downloads
+          docker build -f deploy/docker/Dockerfile -t emulkon:ci .
+      - name: Запуск и проверка
+        run: |
+          docker run -d --name emulkon -p 8737:8737 -e EMULKON_CONTROL_TOKEN=ci-control -e EMULKON_DEVICE_TOKEN=ci-device emulkon:ci
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8737/api/v1/health > /dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8737/api/v1/health || { docker logs emulkon; exit 1; }; echo
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8737/control/v1/info)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer ci-control' http://127.0.0.1:8737/control/v1/info)" = 200
+          catalog=$(curl -fsS http://127.0.0.1:8737/api/v1/downloads)
+          echo "$catalog" | head -c 600; echo
+          if ls deploy/docker/downloads/EmulkonDriver_*_lin64.so > /dev/null 2>&1; then
+            echo "$catalog" | grep -q '"os":"linux"'
+            echo "$catalog" | grep -q '"os":"windows"'
+          fi
+          docker logs emulkon 2>&1 | tail -n 5
+          docker rm -f emulkon

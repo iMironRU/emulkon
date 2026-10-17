@@ -16,6 +16,7 @@
 
 # прогоны в 1С: собранная обработка, отчёты, снимки окон
 /tests/1c/build/
+/tests/linux/build/
 
 # логи MCP-сервера справки 1С (пишет в cwd)
 mcp-server.log*
@@ -35,3 +36,5 @@ mcp-server.log*
 
 # SDK Native API 1С (распространяет 1С) — локально или из секрета CI
 /third_party/onec-sdk/
+/deploy/docker/downloads/*
+!/deploy/docker/downloads/README.md

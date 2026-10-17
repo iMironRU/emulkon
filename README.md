@@ -112,12 +112,19 @@ cd server
 go run ./cmd/emulkon          # UI — http://127.0.0.1:8737
 ```
 
-Docker — для стендов и CI:
+Docker — общий сервер для команды разработчиков, стенды и CI. Готовый образ с драйвером для касс внутри (страница
+загрузок и самообновление драйверов работают):
 
 ```bash
-docker build -f deploy/docker/Dockerfile -t emulkon:dev .
-docker run -p 8737:8737 -e EMULKON_DEVICE_TOKEN=… -e EMULKON_CONTROL_TOKEN=… -v emulkon-data:/data emulkon:dev
+docker run -d --name emulkon -p 8737:8737 -e EMULKON_DEVICE_TOKEN=… -e EMULKON_CONTROL_TOKEN=… \
+  -v emulkon-data:/data ghcr.io/imironru/emulkon:latest
 ```
+
+Каждый разработчик подключает драйвер в своей 1С к адресу сервера: рабочие места и устройства различаются сами
+(по компьютеру и базе), журнал и сценарии — общие, доступ — по токенам. Сборка образа из исходников —
+`docker build -f deploy/docker/Dockerfile -t emulkon:dev .` (драйвер — в `deploy/docker/downloads/`), compose —
+[deploy/docker/compose.yaml](deploy/docker/compose.yaml). Linux без Docker — пакеты `.deb`/`.rpm`
+([deploy/linux](deploy/linux/README.md)).
 
 <details>
 <summary>Настройки сервера</summary>

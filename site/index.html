@@ -48,7 +48,7 @@
         </a>
         <a class="btn" href="https://github.com/iMironRU/emulkon">Исходный код</a>
       </div>
-      <p class="note">Windows 10 и 11, x64. Драйвер для 1С — x64 и x86. Сервер — также Linux и Docker.</p>
+      <p class="note">Windows 10 и 11, x64. Драйвер для 1С — Windows x64 и x86, Linux x86_64. Сервер — также Linux (.deb, .rpm) и Docker.</p>
     </div>
     <figure>
       <img src="images/console-summary.png" width="1000" height="560" alt="Консоль управления Эмулкона: сводка службы, устройств и рабочих мест">
@@ -299,7 +299,7 @@
           </tr>
           <tr>
             <th>Linux</th>
-            <td class="us"><span class="n">драйвер — нет</span>; сервер — да, и Docker</td>
+            <td class="us"><span class="y">да</span>: драйвер x86_64; сервер — .deb, .rpm, Docker</td>
             <td><span class="y">да</span></td>
             <td class="q">нет данных</td>
             <td class="q">нет данных</td>
@@ -437,7 +437,7 @@
     </details>
     <details>
       <summary>Работает ли на Linux?</summary>
-      <p>Сервер — да, в том числе в Docker. Драйвер для 1С пока только под Windows (x64 и x86).</p>
+      <p>Да, с версии 0.9.0. Драйвер для 1С под Linux x86_64 проверен в настоящей 1С (УНФ 3.0, платформа 8.5, Ubuntu 24.04) — в том числе с сервером на Windows и наоборот. Сервер — пакеты .deb и .rpm со службой systemd и образ Docker <code>ghcr.io/imironru/emulkon</code>: один сервер на команду разработчиков.</p>
     </details>
     <details>
       <summary>Windows предупреждает о неизвестном издателе</summary>

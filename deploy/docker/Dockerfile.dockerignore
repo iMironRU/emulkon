@@ -1,0 +1,8 @@
+# Контекст сборки образа — корень репозитория; в него идёт только нужное (BuildKit читает этот файл рядом с Dockerfile).
+*
+!server/
+!VERSION
+!deploy/docker/Dockerfile
+!deploy/docker/downloads/
+server/bin/
+server/data/

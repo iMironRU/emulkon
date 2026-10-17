@@ -1,10 +1,23 @@
 #include "json.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
 namespace emu {
+
+namespace {
+
+// Числа JSON — всегда с точкой, независимо от локали процесса: клиент 1С под Linux включает локаль системы
+// (ru_RU — десятичная запятая), и strtod/printf("%g") там читали «0.532» как 0 и писали «0,532».
+double parseNumber(const std::string& s) {
+    double v = 0;
+    std::from_chars(s.data(), s.data() + s.size(), v);
+    return v;
+}
+
+}  // namespace
 
 Json Json::boolean(bool v) {
     Json j;
@@ -27,18 +40,10 @@ Json Json::number(double v) {
         j.type = Type::Null;  // в JSON нет NaN/Inf
         return j;
     }
+    // Кратчайшая запись, которая читается обратно в то же число; без локали.
     char buf[64];
-    std::snprintf(buf, sizeof buf, "%.17g", v);
-    // Кратчайшая запись, которая читается обратно в то же число.
-    for (int prec = 1; prec <= 17; ++prec) {
-        char b2[64];
-        std::snprintf(b2, sizeof b2, "%.*g", prec, v);
-        if (std::strtod(b2, nullptr) == v) {
-            j.text = b2;
-            return j;
-        }
-    }
-    j.text = buf;
+    auto r = std::to_chars(buf, buf + sizeof buf, v);
+    j.text.assign(buf, r.ptr);
     return j;
 }
 
@@ -79,13 +84,13 @@ int64_t Json::asInt() const {
     if (type == Type::Bool) return b ? 1 : 0;
     if (type != Type::Number) return 0;
     if (isInteger()) return std::strtoll(text.c_str(), nullptr, 10);
-    return static_cast<int64_t>(std::strtod(text.c_str(), nullptr));
+    return static_cast<int64_t>(parseNumber(text));
 }
 
 double Json::asDouble() const {
     if (type == Type::Bool) return b ? 1 : 0;
     if (type != Type::Number) return 0;
-    return std::strtod(text.c_str(), nullptr);
+    return parseNumber(text);
 }
 
 const Json* Json::get(const std::string& key) const {

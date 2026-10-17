@@ -99,6 +99,17 @@ EmulkonSetup.exe /uninstall      удаление
   /purge           при удалении — и данные: ProgramData\Emulkon, настройки трея и кэш драйвера этого пользователя
 ```
 
+`EmulkonSetup.exe` — оконная программа: PowerShell и `cmd` не ждут её через `&` или по имени, код возврата не
+доходит, а следующая команда идёт одновременно (так `/check` сразу за `/repair` застаёт службу остановленной на
+замену файлов). Из скриптов — с ожиданием:
+
+```powershell
+$p = Start-Process EmulkonSetup.exe -ArgumentList "/repair", "/quiet", "/log", "C:\Temp\repair.log" -Wait -PassThru
+$p.ExitCode
+```
+
+В `cmd` — `start /wait EmulkonSetup.exe /check /quiet /log …`.
+
 Удаление из «Параметров» запускает `bin\EmulkonSetup.exe /uninstall`: служба останавливается и удаляется,
 затем файлы, ярлыки и записи. Свой exe Windows удалить не даёт, поэтому мастер стирает себя, `bin` и пустой
 каталог через пару секунд после выхода. Данные в `ProgramData\Emulkon` остаются, если не выбрано «Удалить и

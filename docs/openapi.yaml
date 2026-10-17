@@ -248,6 +248,7 @@ paths:
       tags: [control]
       operationId: setDeviceMeta
       summary: Подпись и заметка устройства
+      description: Подпись, заметка и вывод документов устройства. В журнал — `control.device_meta` (что изменено).
       parameters:
         - $ref: "#/components/parameters/DeviceID"
       requestBody:
@@ -316,6 +317,7 @@ paths:
       tags: [control]
       operationId: setWorkstationMeta
       summary: Подпись и заметка рабочего места (неизвестное заводится)
+      description: В журнал — `control.workstation_meta` (что изменено).
       parameters:
         - name: workstation_id
           in: path

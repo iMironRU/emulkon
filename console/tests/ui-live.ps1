@@ -4,7 +4,8 @@
 # Нажимает кнопки сообщениями окнам консоли (WM_COMMAND), без эмуляции мыши и клавиатуры. Меняет установленную
 # службу (реестр, брандмауэр, перезапуски, сценарии) и в конце возвращает как было: без токенов, сеть — как до
 # теста, тестового правила нет. Сценарии: выключить, удалить, окна выгрузки и загрузки (открыть, «Отмена»);
-# журнал: отбор, сбросить отбор, окно выгрузки.
+# журнал: отбор, сбросить отбор, окно выгрузки; обслуживание (этап 5): окна выгрузки и загрузки настроек, итог
+# «Проверить обновления…» (ответ GitHub — как есть, ничего не ставится).
 # Нужны права администратора. Отчёт — в файл -Out (UTF-8), код возврата 0 — всё прошло.
 #
 #   powershell -MTA -ExecutionPolicy Bypass -File ui-live.ps1 -Out <отчёт>   (MTA — см. Async)
@@ -34,6 +35,7 @@ public static class U {
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
@@ -276,7 +278,13 @@ try {
         Log "  ---  «Кассы в сети» были включены до теста — переключение пропущено"
     }
     [U]::Command($sheet, 2)  # «Отмена» — закрыть
-    Start-Sleep -Seconds 1
+    # Дальше окна ищутся по началу заголовка «Свойства: » — окно службы должно исчезнуть, иначе найдётся оно.
+    $closed = WaitFor { -not [U]::IsWindow($sheet) } 30
+    if (-not $closed) {
+        $box = Wait-Top "#32770" "Эмулкон" -sec 1
+        if ($box -ne [IntPtr]::Zero) { Log "  окно поверх свойств: $([U]::AllText($box))" }
+    }
+    Check $closed "окно «Свойства: Служба» закрылось"
 
     # --- Рабочее место → Свойства: подпись ---
     Log "== Рабочие места → Свойства"
@@ -360,6 +368,34 @@ try {
     $v = $doc.ActiveView
     $methods = @(@($v.ListItems) | ForEach-Object { $v.CellContents($_, 6) } | Sort-Object -Unique)
     Check ($methods.Count -gt 1) "«Сбросить отбор» — снова все записи"
+
+    # --- Обслуживание (этап 5): настройки службы и обновления ---
+    Log "== Обслуживание"
+    $doc.Views.Add($service, 0) | Out-Null
+    $v = $doc.ActiveView
+    Async $v "ExecuteScopeNodeMenuItem" "Выгрузить настройки…" $service
+    FileDialogCancel "Выгрузить настройки службы"
+    Wait-Async
+    Async $v "ExecuteScopeNodeMenuItem" "Загрузить настройки…" $service
+    FileDialogCancel "Загрузить настройки службы"
+    Wait-Async
+    # Ответ GitHub зависит от выпусков: до 0.9.0 описания нет — ошибка с причиной; есть — «последняя версия» или
+    # вопрос «Скачать и установить?» (ответ «Нет»: тест ничего не ставит).
+    # Пункт корня: MMC выполняет его только из представления самого корня.
+    $doc.Views.Add($rootNode, 0) | Out-Null
+    $v = $doc.ActiveView
+    Async $v "ExecuteScopeNodeMenuItem" "Проверить обновления…" $rootNode
+    $box = Wait-Top "#32770" "Эмулкон" -sec 40
+    Check ($box -ne [IntPtr]::Zero) "«Проверить обновления…» — окно с итогом"
+    if ($box -ne [IntPtr]::Zero) {
+        $text = [U]::AllText($box)
+        Check ($text -match "описания выпуска нет|последняя версия|Вышла версия|Не удалось проверить") "итог: $($text.Substring(0, [Math]::Min(90, $text.Length)))…"
+        # Вопрос — «Нет» (7); сообщение с одной кнопкой — как Esc (2): кнопка «ОК» окна-сообщения не IDOK.
+        [U]::Command($box, $(if ($text -like "*Скачать и установить?*") { 7 } else { 2 }))
+        Start-Sleep -Milliseconds 500
+        if ((Wait-Top "#32770" "Эмулкон" -sec 1) -ne [IntPtr]::Zero) { [U]::Command((Wait-Top "#32770" "Эмулкон" -sec 1), 1) }
+    }
+    Wait-Async
 } catch {
     Check $false "сбой: $_"
 } finally {
