@@ -12,6 +12,9 @@
 //	EMULKON_CONTROL_TOKEN[_HASH],           токен Control API (открыто или SHA-256); пусто — без авторизации
 //	  ControlTokenHash
 //	EMULKON_LOG_LEVEL, LogLevel             debug | info | warn | error (info)
+//	EMULKON_UPDATE_MODE, UpdateMode         новые выпуски: off | notify (notify) — раз в сутки latest.json; служба
+//	                                        Windows скачивает установщик в %ProgramData%\Emulkon\updates
+//	EMULKON_UPDATE_URL, UpdateURL           свой latest.json вместо выпусков GitHub
 //	EMULKON_DEFAULT_TIMEOUT_MS              рекомендуемый таймаут компоненты, мс (30000)
 //	EMULKON_JOURNAL_MAX_FILE_MB             порог ротации файла журнала, МБ (32)
 //	EMULKON_JOURNAL_MAX_FILES               сколько файлов журнала хранить (8)
@@ -143,6 +146,9 @@ func serve(ctx context.Context, s settings, el *eventLog, ready func()) error {
 		SessionIdleTTL:      s.SessionIdleTTL,
 		JournalMaxFileBytes: s.JournalMaxFileBytes,
 		JournalMaxFiles:     s.JournalMaxFiles,
+		UpdateMode:          s.UpdateMode,
+		UpdateURL:           s.UpdateURL,
+		UpdateDir:           updatesDir(s),
 	})
 	if err != nil {
 		return err

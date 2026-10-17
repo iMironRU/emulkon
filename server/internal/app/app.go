@@ -28,6 +28,7 @@ import (
 	"emulkon/internal/scenarios"
 	"emulkon/internal/secret"
 	"emulkon/internal/sessions"
+	"emulkon/internal/updates"
 	"emulkon/web"
 )
 
@@ -43,6 +44,11 @@ type Config struct {
 	SessionIdleTTL      time.Duration
 	// DownloadsDirs — каталоги дистрибутива (драйвер, установщик); пусто — загрузок нет.
 	DownloadsDirs []string
+	// Обновления (internal/updates, docs/local-install.md §2.3): режим off | notify, свой latest.json, каталог для
+	// установщика (только служба Windows; пусто — не скачивать).
+	UpdateMode string
+	UpdateURL  string
+	UpdateDir  string
 }
 
 // Записи журнала об экране устройства (models.Prompter): трей и веб-интерфейс по ним
@@ -58,6 +64,7 @@ type App struct {
 	Journal *journal.Journal
 	Devices *deviceapi.API
 	Sess    *sessions.Manager
+	Updates *updates.Checker
 }
 
 func New(cfg Config) (*App, error) {
@@ -122,12 +129,17 @@ func New(cfg Config) (*App, error) {
 	}, sess, j)
 
 	mux := http.NewServeMux()
+	upd := updates.New(updates.Config{
+		Version: cfg.Version, Mode: cfg.UpdateMode, FeedURL: cfg.UpdateURL, AllowHTTP: cfg.UpdateURL != "",
+		DownloadDir: cfg.UpdateDir, StatePath: filepath.Join(cfg.DataDir, "updates.json"), Token: cfg.ControlToken,
+	}, j)
+	upd.Register(mux)
 	dev.Register(mux)
 	ctl.Register(mux)
 	dl.Register(mux)
 	mux.Handle("/", web.Handler())
 
-	return &App{Handler: httpx.Recover(mux), Journal: j, Devices: dev, Sess: sess}, nil
+	return &App{Handler: httpx.Recover(mux), Journal: j, Devices: dev, Sess: sess, Updates: upd}, nil
 }
 
 // Registry — реестр моделей: настоящие модели всех типов оборудования требований 4.8 — ККТ
@@ -164,6 +176,7 @@ func (a *App) Run(ctx context.Context) {
 			}
 		}
 	}()
+	go a.Updates.Run(ctx)
 	a.Devices.Run(ctx)
 }
 

@@ -174,6 +174,33 @@ async function loadInfo() {
   setNotices(warns);
 }
 
+// ---------- новая версия (docs/local-install.md §2.3) ----------
+
+// loadUpdates — плашка о новом выпуске по GET /api/v1/updates (сервер проверяет раз в сутки). Служба Windows уже
+// скачала установщик — ставит человек: «Обновить» в трее или консоли.
+async function loadUpdates() {
+  let st;
+  try {
+    st = await (await fetch('/api/v1/updates')).json();
+  } catch {
+    return;
+  }
+  const wrap = $('#update-wrap');
+  if (!st || !st.available || !st.latest) {
+    wrap.hidden = true;
+    return;
+  }
+  const when = st.latest.published ? ` от ${st.latest.published}` : '';
+  const parts = [`Вышла версия ${st.latest.version}${when}, у вас ${st.current}. `];
+  if (typeof st.page === 'string' && st.page.startsWith('https://')) {
+    parts.push(el('a', { href: st.page, target: '_blank', rel: 'noopener' }, 'Что нового'), '. ');
+  }
+  parts.push(st.installer ? 'Установщик уже скачан — «Обновить» в трее или в консоли «Эмулкон».'
+    : 'Установщик и пакеты — на странице выпуска.');
+  $('#update-banner').replaceChildren(...parts);
+  wrap.hidden = false;
+}
+
 // ---------- устройства и сессии ----------
 
 function scheduleRefresh() {
@@ -2254,6 +2281,8 @@ async function start() {
   }
   refreshTables();
   restartJournal();
+  loadUpdates();
+  setInterval(loadUpdates, 60 * 60 * 1000);
 }
 
 setInterval(() => { if (!document.hidden) refreshTables(); }, 5000);

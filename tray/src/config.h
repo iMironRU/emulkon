@@ -17,6 +17,7 @@ struct Config {
     std::wstring serverData;              // каталог данных локального сервера
     std::wstring serverListen;            // адрес прослушивания локального сервера; пусто — из serverUrl
     bool serverAutostart = false;         // поднимать локальный сервер, если он не отвечает (ставит установщик)
+    std::wstring updateNotified;          // версия, о выходе которой трей уже сообщил (issue #8)
 };
 
 std::string serializeConfig(const Config& c);
