@@ -351,7 +351,9 @@ void offline(Component& c) {
                            "<Parameter Name=\"TimeoutMs\" Value=\"1000\"/></Parameters>")});
     check(isFalse(r.ret), "подключение к недоступному серверу → False");
     std::string err = lastError(c);
-    check(err.rfind("900 ", 0) == 0 && err.find("Нет связи") != std::string::npos, "ошибка связи: " + err);
+    const std::string fullErr = c.call("ПолучитьОшибку", {Value::str("")}).params[0].s;  // lastError обрезает для показа
+    check(err.rfind("900 ", 0) == 0 && err.find("Нет связи") != std::string::npos && fullErr.find("не запущен или не установлен") != std::string::npos,
+          "ошибка связи с подсказкой: " + err);
 
     r = c.call("СформироватьЧек", {Value::str("emulkon-99"), Value::boolean(false), Value::str("<CheckPackage/>"), Value::str("")});
     check(isFalse(r.ret), "чек на неподключённом устройстве → False");
