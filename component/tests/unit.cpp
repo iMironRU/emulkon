@@ -225,7 +225,14 @@ static void testUpdateLogic() {
     o.url = "/downloads/../secret";
     CHECK(!o.valid());
     CHECK(!parseUpdateOffer(nullptr).valid());
-    CHECK(std::string(driverArch()) == (sizeof(void*) == 8 ? "x86_64" : "i386"));
+    // Архитектура — по компилятору (issue #12): сборка ARM64 не должна назваться x86_64.
+#if defined(__aarch64__) || defined(_M_ARM64)
+    CHECK(std::string(driverArch()) == "aarch64");
+#elif defined(__x86_64__) || defined(_M_X64)
+    CHECK(std::string(driverArch()) == "x86_64");
+#else
+    CHECK(std::string(driverArch()) == "i386");
+#endif
 }
 
 // FakeHttp — сервер обновлений в памяти: ответ /api/v1/driver/update и файл DLL.

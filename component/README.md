@@ -166,6 +166,8 @@ Windows; для `harness_server` нужен сервер (`EMULKON_TEST_SERVER`)
 
 ## Не сделано
 
-- Linux x86 (32 бита) и ARM: собирается только x86_64. Проверка в настоящей 1С под Linux —
-  [tests/linux](../tests/linux/README.md).
+- Linux ARM64 (#12): CI собирает и прогоняет тесты на ARM-раннере (`libEmulkonDriver_linarm64.so`, артефакт
+  `linux-driver-arm64`), но в пакет для 1С не входит, пока в настоящей 1С для Linux ARM не подтверждено значение `arch`
+  в `MANIFEST.XML` (у компонент самой 1С для Linux — только `i386`, `x86_64`; `ARM64` — у Android). Linux x86 (32 бита)
+  не собирается. Проверка в настоящей 1С под Linux — [tests/linux](../tests/linux/README.md).
 - Лог драйвера на рабочем месте. `LogIsEnabled="false"`: журнал обменов ведёт сервер.

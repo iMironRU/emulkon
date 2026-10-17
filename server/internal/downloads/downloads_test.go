@@ -162,6 +162,12 @@ func TestDriverUpdateLinux(t *testing.T) {
 	if f, ok := h.LatestDriver(OSLinux, ArchX86); ok {
 		t.Fatalf("Linux x86 не опубликован: %+v", f)
 	}
+	// ARM64 (issue #12): запрос принимается, но библиотеку x86_64 драйверу ARM не предлагаем.
+	u = UpdateResponse{}
+	getJSON(t, srv.URL+"/api/v1/driver/update?version=0.2.0&arch=aarch64&os=linux", &u)
+	if u.UpdateAvailable || u.Latest != nil {
+		t.Fatalf("Linux ARM64 — файлов нет, обновления нет: %+v", u)
+	}
 	var c Catalog
 	getJSON(t, srv.URL+"/api/v1/downloads", &c)
 	if len(c.DriverDLLs) != 2 || c.DriverDLLs[0].OS != OSWindows || c.DriverDLLs[1].OS != OSLinux {

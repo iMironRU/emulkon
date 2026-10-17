@@ -196,7 +196,7 @@ data: {"event_id":"dlzhspvu1hs4.1","time":"…","name":"Barcode","data":"4600000
 | `GET /downloads` | страница «Поддержка и загрузки»: что поддерживается, скачивание, как установить в БПО |
 | `GET /downloads/{файл}` | файл; каждое скачивание — запись `download` в журнале (рабочее место — из `X-Emulkon-Workstation`) |
 | `GET /api/v1/downloads` | каталог: самые новые файлы каждого вида с размером и SHA-256, поддержка оборудования; у типа с драйвером — `package`, пакет под этот тип |
-| `GET /api/v1/driver/update?version=&arch=&os=` | есть ли драйвер новее для архитектуры `x86_64` или `i386` и ОС `windows` (по умолчанию) или `linux` |
+| `GET /api/v1/driver/update?version=&arch=&os=` | есть ли драйвер новее для архитектуры `x86_64`, `i386` или `aarch64` (Linux ARM64: файлов пока нет — «обновления нет») и ОС `windows` (по умолчанию) или `linux` |
 
 **Как обновляется драйвер.**
 1. Компонента открывает сессию с `driver_version`, `driver_arch` и `driver_os` (`windows`, `linux`; без него —

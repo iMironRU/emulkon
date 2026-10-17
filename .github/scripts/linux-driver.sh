@@ -4,7 +4,7 @@
 # Запускается в контейнере manylinux_2_28 (glibc 2.28): собранная там .so работает и на дистрибутивах новее.
 #
 # Нужны: ONEC_SDK_B64 (zip заголовков SDK Native API 1С в base64; без него — пропуск), go в PATH.
-# Результат: dist-linux/libEmulkonDriver_lin64.so.
+# Результат: dist-linux/libEmulkonDriver_lin64.so (x86_64) или libEmulkonDriver_linarm64.so (aarch64, issue #12).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -52,5 +52,18 @@ if ldd "$so" | grep -q 'libstdc++'; then
   echo "libstdc++ должна быть внутри .so (-static-libstdc++)"
   exit 1
 fi
-cp "$so" "$out/"
-echo "Драйвер Linux: $out/libEmulkonDriver_lin64.so ($(stat -c %s "$so") байт)"
+readelf -h "$so" | grep -E 'Class|Machine'
+
+# Драйвер называет серверу свою архитектуру (driver_arch) — по компилятору, а не по разрядности (issue #12).
+arch="$(uname -m)"
+if ! curl -fsS "http://127.0.0.1:8799/control/v1/journal?method=session.open&limit=50" | grep -q "\"driver_arch\":\"$arch\""; then
+  echo "в журнале стенда нет session.open с driver_arch=$arch"
+  exit 1
+fi
+echo "driver_arch на стенде: $arch"
+
+# Имя по архитектуре: x86_64 — libEmulkonDriver_lin64.so (пакет, установщик, релиз), aarch64 — ..._linarm64.so.
+name=libEmulkonDriver_lin64.so
+[ "$arch" = aarch64 ] && name=libEmulkonDriver_linarm64.so
+cp "$so" "$out/$name"
+echo "Драйвер Linux ($arch): $out/$name ($(stat -c %s "$so") байт)"
