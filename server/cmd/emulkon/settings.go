@@ -46,8 +46,8 @@ type settings struct {
 	ControlToken  secret.Token
 	DeviceToken   secret.Token
 	Service       bool
-	UpdateMode    string // off | notify
-	UpdateURL     string // latest.json; пусто — выпуски GitHub
+	UpdateMode    string            // off | notify
+	UpdateURL     string            // latest.json; пусто — выпуски GitHub
 	Sources       map[string]string // имя настройки → flag | env | registry | default
 
 	DefaultTimeout      time.Duration
