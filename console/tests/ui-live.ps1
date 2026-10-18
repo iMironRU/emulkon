@@ -389,7 +389,8 @@ try {
     Check ($box -ne [IntPtr]::Zero) "«Проверить обновления…» — окно с итогом"
     if ($box -ne [IntPtr]::Zero) {
         $text = [U]::AllText($box)
-        Check ($text -match "описания выпуска нет|последняя версия|Вышла версия|Не удалось проверить") "итог: $($text.Substring(0, [Math]::Min(90, $text.Length)))…"
+        # Окно новой версии — TaskDialog (#25): его текст не в дочерних окнах, AllText пуст.
+        Check ($text -match "описания выпуска нет|последняя версия|Вышла версия|Не удалось проверить" -or $text.Trim() -eq "") "итог: $(if ($text.Trim()) { $text.Substring(0, [Math]::Min(90, $text.Length)) } else { 'окно новой версии (TaskDialog)' })…"
         # Вопрос — «Нет» (7); сообщение с одной кнопкой — как Esc (2): кнопка «ОК» окна-сообщения не IDOK.
         [U]::Command($box, 2)  # «Отмена» / «ОК»: «Нет» открыл бы «Что нового» в браузере
         Start-Sleep -Milliseconds 500

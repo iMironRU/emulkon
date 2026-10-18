@@ -20,6 +20,7 @@ add_library(console_core STATIC
   src/inventory.cpp
   src/records.cpp
   src/maintenance.cpp
+  src/taskdialog.cpp
   "${COMPONENT_SRC}/json.cpp"
   "${COMPONENT_SRC}/text.cpp"
   "${COMPONENT_SRC}/http_winhttp.cpp")
@@ -30,6 +31,7 @@ target_compile_options(console_core PUBLIC /utf-8 /EHsc /W3)
 target_link_libraries(console_core PUBLIC winhttp advapi32 bcrypt shell32 ole32)
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../res/emulkon.ico" "${CMAKE_CURRENT_BINARY_DIR}/emulkon.ico" COPYONLY)
+configure_file(src/comctl6.manifest "${CMAKE_CURRENT_BINARY_DIR}/comctl6.manifest" COPYONLY)
 configure_file(src/console.rc.in "${CMAKE_CURRENT_BINARY_DIR}/console.rc" @ONLY)
 add_library(EmulkonSnapIn SHARED src/snapin.cpp src/dialogs.cpp src/snapin.def "${CMAKE_CURRENT_BINARY_DIR}/console.rc")
 target_link_libraries(EmulkonSnapIn PRIVATE console_core mmc ole32 shell32 user32 gdi32 comctl32 comdlg32 uuid)
@@ -40,8 +42,11 @@ if(EMULKON_SNAPIN_TRACE)
 endif()
 
 enable_testing()
-add_executable(console_unit tests/unit.cpp)
-target_link_libraries(console_unit PRIVATE console_core)
+# Окно новой версии (TaskDialog) проверяется в модульном тесте: ему нужен тот же манифест ресурсом 3.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/unit.rc" "3 24 \"${CMAKE_CURRENT_BINARY_DIR}/comctl6.manifest\"
+")
+add_executable(console_unit tests/unit.cpp "${CMAKE_CURRENT_BINARY_DIR}/unit.rc")
+target_link_libraries(console_unit PRIVATE console_core user32 gdi32)
 add_test(NAME console_unit COMMAND console_unit)
 
 # Живой тест против отдельного сервера: запускает tests/live.ps1 (его зовёт build.ps1), не ctest.

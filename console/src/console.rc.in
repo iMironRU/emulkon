@@ -28,3 +28,5 @@ BEGIN
         VALUE "Translation", 0x419, 1200
     END
 END
+// Common Controls 6 — только на время окна новой версии (TaskDialog, #25); 3, а не 2: загрузчик его не применяет.
+3 24 "@CMAKE_CURRENT_BINARY_DIR@/comctl6.manifest"
