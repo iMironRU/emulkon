@@ -84,7 +84,9 @@ bool writeFileAtomic(const std::wstring& path, const void* data, DWORD size, std
         Sleep(500);
     }
     if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION) {
-        error = L"файл занят запущенной программой — закройте трей Эмулкона у всех пользователей и повторите (" + error + L")";
+        const std::vector<Locker> ls = fileLockers({path});
+        error = ls.empty() ? L"файл занят другой программой — закройте её и повторите (" + error + L")"
+                           : L"файл занят: " + lockersText(ls) + L" — закройте и повторите";
     }
     DeleteFileW(tmp.c_str());
     return false;
@@ -579,6 +581,81 @@ void stopInstance(const std::wstring& dir, const Sink& sink) {
     }
 }
 
+std::vector<Locker> fileLockers(const std::vector<std::wstring>& files) {
+    std::vector<Locker> out;
+    if (files.empty()) return out;
+    DWORD session = 0;
+    WCHAR key[CCH_RM_SESSION_KEY + 1]{};
+    if (RmStartSession(&session, 0, key) != ERROR_SUCCESS) return out;
+    std::vector<LPCWSTR> names;
+    for (const auto& f : files) names.push_back(f.c_str());
+    if (RmRegisterResources(session, static_cast<UINT>(names.size()), names.data(), 0, nullptr, 0, nullptr) ==
+        ERROR_SUCCESS) {
+        std::vector<RM_PROCESS_INFO> info(16);
+        UINT needed = 0, count = static_cast<UINT>(info.size());
+        DWORD reasons = 0;
+        DWORD rc = RmGetList(session, &needed, &count, info.data(), &reasons);
+        if (rc == ERROR_MORE_DATA) {
+            info.resize(needed + 4);
+            count = static_cast<UINT>(info.size());
+            rc = RmGetList(session, &needed, &count, info.data(), &reasons);
+        }
+        if (rc == ERROR_SUCCESS) {
+            for (UINT i = 0; i < count; ++i) {
+                const DWORD pid = info[i].Process.dwProcessId;
+                out.push_back({pid, info[i].strAppName, processPath(pid)});
+            }
+        }
+    }
+    RmEndSession(session);
+    return out;
+}
+
+bool closedBySetup(const Locker& l, const std::wstring& dir) {
+    if (l.pid == GetCurrentProcessId()) return true;
+    const std::wstring name = fileName(l.exe);
+    for (const wchar_t* own : {L"emulkon.exe", L"EmulkonTray.exe", L"EmulkonSetup.exe"}) {
+        if (_wcsicmp(name.c_str(), own) == 0 && isInside(l.exe, dir)) return true;
+    }
+    return false;
+}
+
+std::vector<Locker> blockingLockers(const std::wstring& dir) {
+    // Всё, что установка заменяет: файлы bin, console, 1C\driver и setup.
+    std::vector<std::wstring> files;
+    for (const std::wstring& d : {binDir(dir), consoleDir(dir), driverDir(dir), setupDir(dir)}) {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((d + L"\\*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) files.push_back(d + L"\\" + fd.cFileName);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    std::vector<Locker> out;
+    for (const Locker& l : fileLockers(files)) {
+        if (!closedBySetup(l, dir)) out.push_back(l);
+    }
+    return out;
+}
+
+std::wstring lockersText(const std::vector<Locker>& ls) {
+    std::wstring s;
+    std::vector<unsigned long> seen;
+    for (const Locker& l : ls) {
+        bool dup = false;
+        for (unsigned long p : seen) dup = dup || p == l.pid;
+        if (dup) continue;
+        seen.push_back(l.pid);
+        const std::wstring exe = fileName(l.exe);
+        std::wstring one = _wcsicmp(exe.c_str(), L"mmc.exe") == 0 ? L"консоль «Эмулкон» (mmc.exe)"
+                           : exe.empty()                         ? l.name + L" (процесс " + std::to_wstring(l.pid) + L")"
+                                                                 : (l.name.empty() ? exe : l.name + L" (" + exe + L")");
+        s += (s.empty() ? L"" : L", ") + one;
+    }
+    return s;
+}
+
 bool install(const Options& o, const Sink& sink) {
     ComInit com;
     Installed prev = findInstalled();
@@ -586,6 +663,13 @@ bool install(const Options& o, const Sink& sink) {
     std::wstring dir = !o.dir.empty() ? o.dir : (prev.present ? prev.dir : defaultInstallDir());
     report(sink, Status::Info, L"Каталог установки",
            dir + (prev.present ? L" — обновление версии " + prev.version + L" до " + version() : std::wstring()));
+
+    // Занятые файлы — до остановки службы (#24): иначе установка оборвётся на полпути со стоящей службой.
+    if (const std::vector<Locker> busy = blockingLockers(dir); !busy.empty()) {
+        report(sink, Status::Fail, L"Занятые файлы",
+               L"файлы Эмулкона держит: " + lockersText(busy) + L" — закройте и нажмите «Повторить установку»");
+        return false;
+    }
 
     std::wstring error;
     if (serviceState() != ServiceState::Missing) {
