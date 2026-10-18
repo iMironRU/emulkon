@@ -1,11 +1,15 @@
 // Модульные тесты оснастки: адрес сервера и строки сводки (без MMC и сети).
+#include <windows.h>
+
 #include <cstdio>
 #include <string>
+#include <thread>
 
 #include "inventory.h"
 #include "maintenance.h"
 #include "records.h"
 #include "summary.h"
+#include "taskdialog.h"
 
 using namespace console;
 
@@ -299,7 +303,71 @@ static void testMaintenance() {
     CHECK(out.size() == 2 && out[0].text == L"off" && out[1].text == L"https://x/latest.json" && warnings.empty());
 }
 
+// saveBmp — снимок окна (PrintWindow) в BMP: посмотреть окно новой версии глазами (EMULKON_TASKDIALOG_SHOT).
+static void saveBmp(HWND hwnd, const std::wstring& path) {
+    RECT r{};
+    GetWindowRect(hwnd, &r);
+    const int w = r.right - r.left, h = r.bottom - r.top;
+    HDC screen = GetDC(nullptr);
+    HDC dc = CreateCompatibleDC(screen);
+    BITMAPINFO bi{};
+    bi.bmiHeader = {sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB};
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HGDIOBJ old = SelectObject(dc, bmp);
+    PrintWindow(hwnd, dc, 2);  // PW_RENDERFULLCONTENT
+    if (FILE* f = _wfopen(path.c_str(), L"wb")) {
+        const DWORD size = static_cast<DWORD>(w) * h * 4;
+        BITMAPFILEHEADER fh{0x4D42, static_cast<DWORD>(sizeof fh + sizeof bi.bmiHeader + size), 0, 0,
+                            static_cast<DWORD>(sizeof fh + sizeof bi.bmiHeader)};
+        std::fwrite(&fh, sizeof fh, 1, f);
+        std::fwrite(&bi.bmiHeader, sizeof bi.bmiHeader, 1, f);
+        std::fwrite(bits, size, 1, f);
+        std::fclose(f);
+    }
+    SelectObject(dc, old);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+    ReleaseDC(nullptr, screen);
+}
+
+// Окно новой версии (#25): TaskDialog с кликабельной ссылкой показывается (манифест ресурсом 3 активируется на
+// время окна) и закрывается «Отменой» — answer = IDCANCEL. Окно закрывает фоновый поток.
+static void testTaskDialog() {
+    struct Closer {
+        HWND found = nullptr;
+        bool direct = false;  // внутри DirectUIHWND — это TaskDialog, а не MessageBox
+    } c;
+    std::thread closer([&c] {
+        for (int i = 0; i < 100 && !c.found; ++i) {
+            Sleep(100);
+            HWND w = FindWindowW(L"#32770", L"Эмулкон");
+            DWORD pid = 0;
+            if (w) GetWindowThreadProcessId(w, &pid);
+            if (w && pid == GetCurrentProcessId()) c.found = w;
+        }
+        if (!c.found) {
+            std::printf("FAIL: окно новой версии не появилось\n");
+            ExitProcess(1);  // окно, которого не видно, не закрыть — иначе тест повиснет
+        }
+        Sleep(300);
+        c.direct = FindWindowExW(c.found, nullptr, L"DirectUIHWND", nullptr) != nullptr;
+        wchar_t shot[MAX_PATH];
+        if (GetEnvironmentVariableW(L"EMULKON_TASKDIALOG_SHOT", shot, MAX_PATH)) saveBmp(c.found, shot);
+        PostMessageW(c.found, WM_COMMAND, IDCANCEL, 0);
+    });
+    int answer = 0;
+    const bool shown = console::newVersionTaskDialog(
+        nullptr, L"Вышла версия 0.9.2 от 2026-10-25", L"Установлена 0.9.1.",
+        L"https://github.com/iMironRU/emulkon/releases/tag/v0.9.2",
+        L"Установщик проверяется по SHA-256 из описания выпуска; откроется мастер обновления — он перезапустит службу.",
+        answer);
+    closer.join();
+    CHECK(shown && answer == IDCANCEL && c.direct);
+}
+
 int main() {
+    testTaskDialog();
     testMaintenance();
     testRecords();
     testInventory();
