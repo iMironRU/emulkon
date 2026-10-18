@@ -656,6 +656,8 @@ std::wstring lockersText(const std::vector<Locker>& ls) {
     return s;
 }
 
+bool closableLocker(const Locker& l) { return _wcsicmp(fileName(l.exe).c_str(), L"mmc.exe") == 0; }
+
 bool install(const Options& o, const Sink& sink) {
     ComInit com;
     Installed prev = findInstalled();

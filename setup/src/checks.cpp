@@ -23,9 +23,11 @@ namespace {
 struct Checker {
     const Sink& sink;
     Tally tally;
-    void add(Status s, const std::wstring& title, const std::wstring& detail) {
-        tally.add(s);
-        if (sink) sink(Item{s, title, detail});
+    // fix — что мастер исправит сам (Item::fix).
+    void add(Status s, const std::wstring& title, const std::wstring& detail, const std::wstring& fix = {}) {
+        const Item it{s, title, detail, fix};
+        tally.add(it);
+        if (sink) sink(it);
     }
 };
 
@@ -184,7 +186,9 @@ void checkPort(Checker& c, const std::wstring& dir, const std::wstring& legacyDi
         c.add(Status::Ok, L"Порт " + port, L"занят сервером прежней установки — он будет остановлен, порт займёт служба");
     } else if (_wcsicmp(fileName(path).c_str(), L"emulkon.exe") == 0) {
         c.add(Status::Warn, L"Порт " + port,
-              L"занят другим сервером Эмулкона: " + path + L". Служба не запустится, пока он работает — остановите его");
+              L"занят другим сервером Эмулкона: " + path +
+                  L". Служба не запустится, пока он работает — «Исправить и обновить» остановит его",
+              L"остановить другой сервер Эмулкона (" + path + L")");
     } else {
         c.add(Status::Warn, L"Порт " + port,
               L"занят: " + path + L" (PID " + std::to_wstring(pid) +
@@ -218,6 +222,68 @@ std::wstring jsonText(const emu::Json& j, const char* key) {
 
 }  // namespace
 
+namespace {
+
+// postClose — WM_CLOSE видимым главным окнам процесса lp: как крестиком.
+BOOL CALLBACK postClose(HWND hwnd, LPARAM lp) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == static_cast<DWORD>(lp) && IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER)) {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+    return TRUE;
+}
+
+bool waitGone(DWORD pid, DWORD ms) {
+    HANDLE p = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!p) return true;
+    bool gone = WaitForSingleObject(p, ms) == WAIT_OBJECT_0;
+    CloseHandle(p);
+    return gone;
+}
+
+}  // namespace
+
+bool fixBlockers(const Options& o, const Sink& sink) {
+    Checker c{sink, {}};
+    Installed inst = findInstalled();
+    const std::wstring dir = !o.dir.empty() ? o.dir : (inst.present ? inst.dir : defaultInstallDir());
+    bool ok = true;
+    // 1. Консоли «Эмулкон», что держат файлы установки.
+    if (dirExists(dir)) {
+        std::vector<unsigned long> done;
+        for (const Locker& l : blockingLockers(dir)) {
+            bool seen = false;
+            for (unsigned long p : done) seen = seen || p == l.pid;
+            if (seen || !closableLocker(l)) continue;
+            done.push_back(l.pid);
+            EnumWindows(postClose, static_cast<LPARAM>(l.pid));
+            const bool gone = waitGone(l.pid, 15000);
+            c.add(gone ? Status::Ok : Status::Fail, L"Консоль «Эмулкон»",
+                  gone ? L"закрыта (mmc.exe, PID " + std::to_wstring(l.pid) + L")"
+                       : L"не закрылась за 15 с — возможно, ждёт ответа на вопрос; закройте её сами");
+            ok = ok && gone;
+        }
+    }
+    // 2. Другой сервер Эмулкона на порту 8737 (не служба этой установки и не прежняя установка — их остановит
+    // сама установка): иначе служба не запустится.
+    if (DWORD pid = portOwner(kPort)) {
+        const std::wstring path = processPath(pid);
+        const Installed legacy = findLegacyInstalled();
+        if (_wcsicmp(fileName(path).c_str(), L"emulkon.exe") == 0 && !isInside(path, dir) &&
+            !(legacy.present && isInside(path, legacy.dir))) {
+            HANDLE p = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+            const bool stopped = p && TerminateProcess(p, 0) && WaitForSingleObject(p, 5000) == WAIT_OBJECT_0;
+            if (p) CloseHandle(p);
+            c.add(stopped ? Status::Ok : Status::Fail, L"Другой сервер Эмулкона",
+                  stopped ? L"остановлен: " + path
+                          : L"не остановлен: " + path + L" — остановите его сами (запущен другим пользователем?)");
+            ok = ok && stopped;
+        }
+    }
+    return ok;
+}
+
 Tally preChecks(const Options& o, const Sink& sink) {
     Checker c{sink, {}};
     checkWindows(c);
@@ -250,8 +316,19 @@ Tally preChecks(const Options& o, const Sink& sink) {
     if (dirExists(dir)) {
         const std::vector<Locker> busy = blockingLockers(dir);
         if (!busy.empty()) {
-            c.add(Status::Fail, L"Занятые файлы",
-                  L"файлы Эмулкона держит: " + lockersText(busy) + L" — закройте и нажмите «Проверить снова»");
+            // Консоль «Эмулкон» мастер закроет сам (как крестиком); 1С и чужие программы — только человек:
+            // в них могут быть несохранённые данные.
+            bool consolesOnly = true;
+            for (const Locker& l : busy) consolesOnly = consolesOnly && closableLocker(l);
+            if (consolesOnly) {
+                c.add(Status::Fail, L"Занятые файлы",
+                      L"файлы Эмулкона держит: " + lockersText(busy) +
+                          L" — «Исправить и обновить» закроет её, или закройте сами и нажмите «Проверить снова»",
+                      L"закрыть " + lockersText(busy));
+            } else {
+                c.add(Status::Fail, L"Занятые файлы",
+                      L"файлы Эмулкона держит: " + lockersText(busy) + L" — закройте и нажмите «Проверить снова»");
+            }
         }
     }
     Installed legacy = findLegacyInstalled();

@@ -41,6 +41,14 @@ void Tally::add(Status s) {
     }
 }
 
+void Tally::add(const Item& it) {
+    add(it.status);
+    if (!it.fix.empty() && (it.status == Status::Fail || it.status == Status::Warn)) {
+        ++fixable;
+        if (it.status == Status::Fail) ++fixableFail;
+    }
+}
+
 const wchar_t* statusText(Status s) {
     switch (s) {
         case Status::Ok: return L"✔ готово";

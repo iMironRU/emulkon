@@ -43,6 +43,7 @@ struct Item {
     Status status = Status::Info;
     std::wstring title;   // что проверяли или делали
     std::wstring detail;  // итог и что делать
+    std::wstring fix;     // что мастер исправит сам по «Исправить и обновить» (fixBlockers); пусто — только человек
 };
 
 // Sink получает строки отчёта по мере работы (из рабочего потока).
@@ -50,7 +51,12 @@ using Sink = std::function<void(const Item&)>;
 
 struct Tally {
     int ok = 0, info = 0, warn = 0, fail = 0;
+    int fixable = 0;      // ошибок и предупреждений, которые мастер исправит сам
+    int fixableFail = 0;  // из них ошибок
     void add(Status s);
+    void add(const Item& it);
+    // canFix — есть что исправить, и все ошибки — из исправимых: «Исправить и обновить».
+    bool canFix() const { return fixable > 0 && fail == fixableFail; }
 };
 
 const wchar_t* statusText(Status s);  // «готово», «внимание», «ошибка», «сведения»
@@ -160,6 +166,13 @@ bool closedBySetup(const Locker& l, const std::wstring& dir);
 std::vector<Locker> blockingLockers(const std::wstring& dir);
 // lockersText — «консоль «Эмулкон» (mmc.exe), 1С:Предприятие (1cv8.exe)».
 std::wstring lockersText(const std::vector<Locker>& ls);
+// closableLocker — мастер может закрыть сам (с вопросом): консоль MMC с оснасткой Эмулкона — в ней нечего терять.
+// 1С и прочее — нет: несохранённые данные.
+bool closableLocker(const Locker& l);
+// fixBlockers — «Исправить и обновить»: закрыть консоли «Эмулкон», что держат файлы установки (как крестиком —
+// WM_CLOSE, ждать до 15 с), и остановить чужой сервер Эмулкона на порту 8737 (Restart Manager). Только то, что
+// проверки пометили Item::fix. false — что-то не вышло (в отчёте — что).
+bool fixBlockers(const Options& o, const Sink& sink);
 // stopInstance закрывает трей, серверы и окна установщика, запущенные из dir, —
 // перед обновлением и удалением.
 void stopInstance(const std::wstring& dir, const Sink& sink);

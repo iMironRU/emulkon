@@ -191,7 +191,7 @@ void addRow(const Row& r) {
     ListView_SetItemText(g.list, index, 2, const_cast<wchar_t*>(r.item.detail.c_str()));
     ListView_EnsureVisible(g.list, index, FALSE);
     if (!r.section) {
-        g.tally.add(r.item.status);
+        g.tally.add(r.item);
         if (r.item.status == Status::Fail || r.item.status == Status::Warn) {
             ListView_SetItemState(g.list, index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         }
@@ -293,6 +293,39 @@ void startWork() {
     }).detach();
 }
 
+// startFixAndWork — «Исправить и обновить»: устранить помехи, что проверки пометили исправимыми (fixBlockers),
+// проверить заново и, если ошибок нет, ставить.
+void startFixAndWork() {
+    g.phase = Phase::Working;
+    clearRows();
+    updateButtons();
+    Options o = g.o;
+    HWND hwnd = g.hwnd;
+    Sink sink = uiSink();
+    std::thread([=] {
+        section(L"Исправление");
+        fixBlockers(o, sink);
+        section(L"Перед установкой");
+        if (preChecks(o, sink).fail) {
+            PostMessageW(hwnd, WM_APP_DONE, 0, 0);  // осталось что-то, что исправит только человек
+            return;
+        }
+        bool ok = runAction(Mode::Install, o, sink, section);
+        PostMessageW(hwnd, WM_APP_DONE, ok, 1);
+    }).detach();
+}
+
+// confirmFix — что мастер сделает сам: строки проверок с Item::fix; «Да» — исправлять.
+bool confirmFix() {
+    std::wstring list;
+    for (const Row& r : g.rows) {
+        if (!r.section && !r.item.fix.empty()) list += L"\n• " + r.item.fix;
+    }
+    const std::wstring text = L"Мастер исправит сам:" + list + L"\n\nЗатем проверит всё заново и " +
+                              (!g.installed.present ? L"установит Эмулкон." : g.installed.version == version() ? L"переустановит Эмулкон." : L"обновит Эмулкон.") + L" Продолжить?";
+    return MessageBoxW(g.hwnd, text.c_str(), L"Эмулкон: исправить и продолжить", MB_YESNO | MB_ICONQUESTION) == IDYES;
+}
+
 void layout();
 
 void updateButtons() {
@@ -346,6 +379,12 @@ void updateButtons() {
                 c = L"Отмена";
                 pOn = !busy && g.tally.fail == 0;
                 if (g.phase == Phase::Failed) p = L"Повторить установку";
+                if (g.phase == Phase::Ready && g.tally.canFix()) {  // помехи, что мастер устранит сам
+                    p = !g.installed.present               ? L"Исправить и установить"
+                        : g.installed.version == version() ? L"Исправить и переустановить"
+                                                           : L"Исправить и обновить";
+                    pOn = true;
+                }
             }
             break;
         case Mode::Uninstall:
@@ -375,7 +414,10 @@ void updateButtons() {
                                         : L"Установка…";
             break;
         case Phase::Ready:
-            st = maint ? L"Выберите действие" : tallyText(g.tally) + (g.tally.fail ? L" — исправьте ошибки и проверьте снова" : L"");
+            st = maint ? L"Выберите действие"
+                       : tallyText(g.tally) + (g.tally.canFix() ? L" — исправимо"
+                                               : g.tally.fail   ? L" — исправьте ошибки и проверьте снова"
+                                                                : L"");
             break;
         case Phase::Done:
             st = act == Mode::Uninstall ? L"Эмулкон удалён"
@@ -465,6 +507,10 @@ void onCommand(int id, int code) {
                 return;
             }
             readOptions();
+            if (g.mode == Mode::Install && g.phase == Phase::Ready && g.tally.canFix()) {
+                if (confirmFix()) startFixAndWork();
+                return;
+            }
             if (action() != Mode::Install) clearRows();
             startWork();
             return;
