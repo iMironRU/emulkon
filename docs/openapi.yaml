@@ -100,9 +100,9 @@ paths:
       operationId: getUpdates
       summary: Новый выпуск Эмулкона
       description: |
-        Что сервер знает о выпусках (docs/local-install.md §2.3): раз в сутки читает `latest.json` последнего выпуска;
-        служба Windows скачивает установщик в `%ProgramData%\Emulkon\updates` со сверкой размера и SHA-256 — поле
-        `installer`. Ставит человек (трей, консоль). Секретов нет — без токена: трей и веб-интерфейс.
+        Что сервер знает о выпусках (docs/local-install.md §2.3): раз в сутки читает `latest.json` последнего выпуска
+        и только сообщает. Установщик (`latest.url`) качает и ставит человек — трей или консоль, со сверкой размера и
+        SHA-256. Секретов нет — без токена: трей и веб-интерфейс.
       security: []
       responses:
         "200":
@@ -930,7 +930,6 @@ components:
         error: { type: string, description: Почему последняя проверка не удалась }
         available: { type: boolean, description: Последний выпуск новее этого сервера }
         page: { type: string, description: Страница выпуска (что нового, файлы для других ОС) }
-        installer: { type: string, description: "Скачанный и проверенный установщик (только служба Windows)" }
         notified: { type: string, description: Версия, о которой уже записано update.available }
         latest:
           type: object

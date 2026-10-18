@@ -1,5 +1,7 @@
-// Новая версия Эмулкона для трея (docs/local-install.md §2.3, issue #8): сервер проверяет выпуски раз в сутки,
-// служба Windows скачивает установщик — трей сообщает и по «Обновить до X…» запускает его (UAC).
+// Новая версия Эмулкона для трея (docs/local-install.md §2.3, issue #8): сервер проверяет выпуски раз в сутки и
+// только сообщает — трей по «Обновить до X…» сам качает установщик в «Загрузки» пользователя с меткой «из
+// Интернета», сверяет размер и SHA-256 и запускает его (UAC). Не служба и не ProgramData: exe, тихо скачанный в
+// общий каталог и запущенный оттуда, антивирус считает подозрительным (#20).
 #pragma once
 
 #include <string>
@@ -10,23 +12,33 @@ namespace tray {
 struct UpdateInfo {
     bool available = false;
     std::wstring current;
-    std::wstring version;    // новая версия
+    std::wstring version;  // новая версия
     std::wstring published;
-    std::wstring page;       // страница выпуска
-    std::wstring installer;  // скачанный службой установщик (на компьютере сервера)
+    std::wstring page;     // страница выпуска
+    std::wstring url;      // установщик выпуска
     std::wstring sha256;
+    long long size = 0;
 };
 
 bool parseUpdateState(const std::string& json, UpdateInfo& out);
 
-// isLocalServer — сервер на этом компьютере (127.0.0.1, localhost, [::1]): только тогда установщик из ответа — свой.
+// isLocalServer — сервер на этом компьютере (127.0.0.1, localhost, [::1]).
 bool isLocalServer(const std::wstring& url);
 
-// installerAllowed — запускать можно только установщик, скачанный службой: файл EmulkonSetup_<версия>.exe в
-// каталоге <ProgramData>\Emulkon\updates, без «..» и других каталогов.
-bool installerAllowed(const std::wstring& path, const std::wstring& version, const std::wstring& programData);
+// downloadAllowed — откуда трею можно скачать установщик: EmulkonSetup_<версия>.exe из выпуска на GitHub
+// (https://github.com/iMironRU/emulkon/releases/download/v<версия>/). Свой адрес (UpdateURL службы — стенды,
+// зеркало) — только от сервера этого компьютера: его настройки меняет администратор. Иначе — страница выпуска.
+bool downloadAllowed(const std::wstring& url, const std::wstring& version, bool localServer);
 
-// fileSha256 — SHA-256 файла шестнадцатеричной строкой в нижнем регистре; пусто — не прочитать.
-std::wstring fileSha256(const std::wstring& path);
+// saveInstaller — тело ответа в dir\EmulkonSetup_<версия>.exe, только если сошлись размер (если известен) и
+// SHA-256; с меткой «из Интернета» (Zone.Identifier, ZoneId=3), как у файла из браузера. Путь — в path.
+bool saveInstaller(const std::string& body, const UpdateInfo& u, const std::wstring& dir, std::wstring& path,
+                   std::wstring& err);
+
+// userDownloadsDir — папка «Загрузки» текущего пользователя.
+std::wstring userDownloadsDir();
+
+// sha256Hex — SHA-256 шестнадцатеричной строкой в нижнем регистре; пусто — не посчитать.
+std::wstring sha256Hex(const std::string& data);
 
 }  // namespace tray

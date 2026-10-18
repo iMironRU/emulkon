@@ -24,8 +24,9 @@ struct Release {
 bool parseRelease(const std::string& json, bool allowHttp, Release& r, std::wstring& err);
 // compareVersions — SemVer без сборки: <0, 0, >0. Предварительная (0.9.0-rc1) младше выпуска 0.9.0.
 int compareVersions(const std::string& a, const std::string& b);
-// plainNotes — Markdown «что нового» простым текстом для окна: без **, `, ссылок и заголовков.
-std::wstring plainNotes(const std::string& markdown, size_t maxChars = 1500);
+// releasePage — страница выпуска (что нового) по адресу установщика …/releases/download/vX/EmulkonSetup_X.exe;
+// пусто — адрес не из выпуска GitHub.
+std::wstring releasePage(const Release& r);
 
 // updateFeedUrl — адрес latest.json последнего выпуска; EMULKON_UPDATE_URL — другой (живой тест).
 std::wstring updateFeedUrl(bool* overridden = nullptr);

@@ -75,7 +75,7 @@ struct Installed {
 
 std::wstring envVar(const wchar_t* name);
 std::wstring defaultInstallDir();  // %ProgramFiles%\Emulkon
-std::wstring machineDataDir();     // %ProgramData%\Emulkon: data, logs, backup, updates
+std::wstring machineDataDir();     // %ProgramData%\Emulkon: data, logs, backup
 std::wstring userDataDir();        // %LOCALAPPDATA%\Emulkon: кэш драйвера, лог трея (у прежней установки — и данные сервера)
 std::wstring userConfigDir();      // %APPDATA%\Emulkon: tray.ini
 std::wstring startMenuDir();       // общее меню «Пуск»: …\ProgramData\…\Programs\Эмулкон

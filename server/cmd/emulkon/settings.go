@@ -175,16 +175,6 @@ func defaultDataDir(service bool) string {
 	return "data"
 }
 
-// updatesDir — куда служба Windows скачивает установщик новой версии: %ProgramData%\Emulkon\updates (у LocalService
-// туда есть запись — установщик). Не служба, не Windows (Docker, пакеты Linux) — пусто: только сообщить о выпуске.
-func updatesDir(s settings) string {
-	pd := os.Getenv("ProgramData")
-	if !s.Service || pd == "" {
-		return ""
-	}
-	return filepath.Join(pd, "Emulkon", "updates")
-}
-
 // logsDir — каталог лога службы: %ProgramData%\Emulkon\logs (рядом с data по умолчанию).
 func logsDir(dataDir string) string {
 	if pd := os.Getenv("ProgramData"); pd != "" {

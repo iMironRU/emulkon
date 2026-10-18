@@ -1,15 +1,14 @@
 // Package updates — новые выпуски Эмулкона (docs/local-install.md §2.3, issue #8).
 //
-// Сервер раз в сутки читает описание последнего выпуска (latest.json релиза GitHub). Служба Windows ещё и
-// скачивает установщик в каталог обновлений со сверкой размера и SHA-256 — ставит человек: «Обновить» в трее или
-// консоли (UAC). Сервер ничего не запускает и не ставит. О новой версии — запись update.available в журнале (её ловит
+// Сервер раз в сутки читает описание последнего выпуска (latest.json релиза GitHub) и только сообщает. Установщик
+// качает трей или консоль по «Обновить» — в «Загрузки» пользователя с меткой «из Интернета», со сверкой размера и
+// SHA-256 (#20: exe, тихо скачанный службой в общий каталог, антивирус считает подозрительным); ставит человек
+// (UAC). Сервер ничего не качает, не запускает и не ставит. О новой версии — запись update.available в журнале (её ловит
 // трей) и GET /api/v1/updates (веб-интерфейс, консоль). Проверка вручную — POST /control/v1/updates/check.
 package updates
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,7 +30,7 @@ import (
 // DefaultFeed — latest.json последнего обычного (не предварительного) выпуска.
 const DefaultFeed = "https://github.com/iMironRU/emulkon/releases/latest/download/latest.json"
 
-// Режимы (UpdateMode): off — не проверять; notify — проверять, скачивать (служба Windows) и сообщать.
+// Режимы (UpdateMode): off — не проверять; notify — проверять и сообщать.
 const (
 	ModeOff    = "off"
 	ModeNotify = "notify"
@@ -43,9 +41,6 @@ const (
 	MethodCheck     = "update.check"     // каждая проверка: что нашли или почему не вышло
 	MethodAvailable = "update.available" // новая версия — один раз на версию (трей показывает уведомление)
 )
-
-// maxInstaller — предел размера скачиваемого установщика.
-const maxInstaller = 200 << 20
 
 // Release — описание выпуска (latest.json, .github/workflows/release.yml).
 type Release struct {
@@ -64,24 +59,22 @@ type State struct {
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	Error     string    `json:"error,omitempty"`
 	Latest    *Release  `json:"latest,omitempty"`
-	Available bool      `json:"available"`           // Latest новее текущей версии
-	Page      string    `json:"page,omitempty"`      // страница выпуска: что нового, файлы для других ОС
-	Installer string    `json:"installer,omitempty"` // скачанный и проверенный установщик (служба Windows)
-	Notified  string    `json:"notified,omitempty"`  // версия, о которой уже написали в журнал
+	Available bool      `json:"available"`          // Latest новее текущей версии
+	Page      string    `json:"page,omitempty"`     // страница выпуска: что нового, файлы для других ОС
+	Notified  string    `json:"notified,omitempty"` // версия, о которой уже написали в журнал
 }
 
 // Config — настройки проверки.
 type Config struct {
-	Version     string        // текущая версия сервера
-	Mode        string        // off | notify (пусто — notify)
-	FeedURL     string        // latest.json; пусто — DefaultFeed
-	AllowHTTP   bool          // адрес установщика может быть http (своё описание выпуска — проверки, стенды)
-	Interval    time.Duration // между проверками; 0 — сутки
-	FirstDelay  time.Duration // первая проверка после запуска; 0 — минута
-	DownloadDir string        // каталог для установщика; пусто — не скачивать (не служба Windows)
-	StatePath   string        // файл состояния; пусто — только в памяти
-	Token       secret.Token  // токен Control API — для POST /control/v1/updates/check
-	Client      *http.Client
+	Version    string        // текущая версия сервера
+	Mode       string        // off | notify (пусто — notify)
+	FeedURL    string        // latest.json; пусто — DefaultFeed
+	AllowHTTP  bool          // адрес установщика может быть http (своё описание выпуска — проверки, стенды)
+	Interval   time.Duration // между проверками; 0 — сутки
+	FirstDelay time.Duration // первая проверка после запуска; 0 — минута
+	StatePath  string        // файл состояния; пусто — только в памяти
+	Token      secret.Token  // токен Control API — для POST /control/v1/updates/check
+	Client     *http.Client
 }
 
 // Checker — проверка выпусков.
@@ -113,9 +106,6 @@ func New(cfg Config, j *journal.Journal) *Checker {
 	c.st = c.load()
 	c.st.Current, c.st.Mode = cfg.Version, cfg.Mode
 	c.st.Available = c.st.Latest != nil && Compare(c.st.Latest.Version, cfg.Version) > 0
-	if !c.st.Available {
-		c.st.Installer = ""
-	}
 	return c
 }
 
@@ -154,7 +144,7 @@ func (c *Checker) Run(ctx context.Context) {
 	}
 }
 
-// Check — проверить сейчас: описание выпуска, скачивание (если задан каталог), журнал, файл состояния.
+// Check — проверить сейчас: описание выпуска, журнал, файл состояния. Установщик сервер не качает (#20).
 func (c *Checker) Check(ctx context.Context) (State, error) {
 	c.run.Lock()
 	defer c.run.Unlock()
@@ -171,25 +161,13 @@ func (c *Checker) Check(ctx context.Context) (State, error) {
 	st.Latest = &rel
 	st.Page = releasePage(rel.URL, rel.Version)
 	st.Available = Compare(rel.Version, c.cfg.Version) > 0
-	st.Installer = ""
-	if st.Available && c.cfg.DownloadDir != "" {
-		path, derr := c.download(ctx, rel)
-		if derr != nil {
-			st.Error = "установщик не скачан: " + derr.Error()
-		} else {
-			st.Installer = path
-		}
-	}
-	c.journal(MethodCheck, map[string]any{"latest": rel.Version, "available": st.Available, "installer": st.Installer, "error": st.Error})
-	if st.Available && st.Notified != rel.Version && (c.cfg.DownloadDir == "" || st.Installer != "") {
+	c.journal(MethodCheck, map[string]any{"latest": rel.Version, "available": st.Available})
+	if st.Available && st.Notified != rel.Version {
 		c.journal(MethodAvailable, map[string]any{"version": rel.Version, "published": rel.Published, "page": st.Page,
-			"installer": st.Installer, "sha256": rel.SHA256, "notes": rel.Notes})
+			"url": rel.URL, "sha256": rel.SHA256, "notes": rel.Notes})
 		st.Notified = rel.Version
 	}
 	c.save(st)
-	if st.Error != "" {
-		return st, errors.New(st.Error)
-	}
 	return st, nil
 }
 
@@ -258,89 +236,6 @@ func releasePage(url, version string) string {
 		return ""
 	}
 	return url[:i] + "/releases/tag/v" + version
-}
-
-// download — установщик в DownloadDir: файл появляется, только если сошлись размер и SHA-256. Уже скачанный и
-// верный — не качается заново; прежние установщики удаляются.
-func (c *Checker) download(ctx context.Context, rel Release) (string, error) {
-	if err := os.MkdirAll(c.cfg.DownloadDir, 0o755); err != nil {
-		return "", fmt.Errorf("каталог обновлений: %w", err)
-	}
-	name := "EmulkonSetup_" + rel.Version + ".exe"
-	path := filepath.Join(c.cfg.DownloadDir, name)
-	want := strings.ToLower(rel.SHA256)
-	if got, err := fileSHA256(path); err == nil && got == want {
-		removeOthers(c.cfg.DownloadDir, name)
-		return path, nil
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rel.URL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "Emulkon/"+c.cfg.Version)
-	resp, err := c.cfg.Client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("скачать %s: %w", rel.URL, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d от %s", resp.StatusCode, rel.URL)
-	}
-	tmp, err := os.CreateTemp(c.cfg.DownloadDir, name+".*.part")
-	if err != nil {
-		return "", fmt.Errorf("временный файл: %w", err)
-	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, maxInstaller+1))
-	cerr := tmp.Close()
-	fail := func(e error) (string, error) {
-		os.Remove(tmp.Name())
-		return "", e
-	}
-	switch {
-	case err != nil:
-		return fail(fmt.Errorf("скачать %s: %w", rel.URL, err))
-	case cerr != nil:
-		return fail(fmt.Errorf("записать установщик: %w", cerr))
-	case n > maxInstaller:
-		return fail(fmt.Errorf("установщик больше %d МБ", maxInstaller>>20))
-	case rel.Size > 0 && n != rel.Size:
-		return fail(fmt.Errorf("размер установщика %d байт, в описании выпуска — %d", n, rel.Size))
-	case hex.EncodeToString(h.Sum(nil)) != want:
-		return fail(errors.New("контрольная сумма SHA-256 установщика не совпала с описанием выпуска"))
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fail(fmt.Errorf("установщик: %w", err))
-	}
-	removeOthers(c.cfg.DownloadDir, name)
-	return path, nil
-}
-
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// removeOthers — прежние установщики в каталоге обновлений (оставить keep).
-func removeOthers(dir, keep string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		n := e.Name()
-		if n != keep && strings.HasPrefix(n, "EmulkonSetup_") && (strings.HasSuffix(n, ".exe") || strings.HasSuffix(n, ".part")) {
-			os.Remove(filepath.Join(dir, n))
-		}
-	}
 }
 
 func (c *Checker) journal(method string, payload map[string]any) {

@@ -150,53 +150,11 @@ int compareVersions(const std::string& a, const std::string& b) {
     return pa < pb ? -1 : 1;
 }
 
-std::wstring plainNotes(const std::string& md, size_t maxChars) {
-    std::string out;
-    size_t i = 0;
-    bool lineStart = true;
-    while (i < md.size()) {
-        char c = md[i];
-        if (lineStart) {
-            while (i < md.size() && md[i] == '#') ++i;  // заголовок — текстом
-            if (i < md.size() && md[i] == ' ' && i > 0 && md[i - 1] == '#') ++i;
-            if (i + 1 < md.size() && (md[i] == '-' || md[i] == '*') && md[i + 1] == ' ') {
-                out += "• ";
-                i += 2;
-            }
-            lineStart = false;
-            continue;
-        }
-        if (c == '*' || c == '`') {
-            ++i;
-            continue;
-        }
-        if (c == '[') {  // [текст](адрес) → текст
-            size_t close = md.find(']', i);
-            if (close != std::string::npos && close + 1 < md.size() && md[close + 1] == '(') {
-                size_t end = md.find(')', close);
-                if (end != std::string::npos) {
-                    out += md.substr(i + 1, close - i - 1);
-                    i = end + 1;
-                    continue;
-                }
-            }
-        }
-        if (c == '\r') {
-            ++i;
-            continue;
-        }
-        out += c;
-        if (c == '\n') lineStart = true;
-        ++i;
-    }
-    while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
-    std::wstring w = widen(out);
-    if (w.size() > maxChars) {
-        size_t cut = w.rfind(L'\n', maxChars);
-        w.resize(cut != std::wstring::npos && cut > maxChars / 2 ? cut : maxChars);
-        w += L"\n…";
-    }
-    return w;
+std::wstring releasePage(const Release& r) {
+    const std::string marker = "/releases/download/";
+    const size_t i = r.url.find(marker);
+    if (r.url.rfind("https://", 0) != 0 || i == std::string::npos) return {};
+    return widen(r.url.substr(0, i) + "/releases/tag/v" + r.version);
 }
 
 std::wstring updateFeedUrl(bool* overridden) {

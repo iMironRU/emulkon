@@ -82,78 +82,47 @@ func TestCompare(t *testing.T) {
 	}
 }
 
-func TestCheckDownloadsAndNotifiesOnce(t *testing.T) {
+func TestCheckNotifiesOnceAndDownloadsNothing(t *testing.T) {
 	f := newFeed(t, "0.9.1")
 	dir := t.TempDir()
 	j := openJournal(t)
 	cfg := Config{Version: "0.9.0", FeedURL: f.srv.URL + "/latest.json", AllowHTTP: true,
-		DownloadDir: filepath.Join(dir, "updates"), StatePath: filepath.Join(dir, "updates.json")}
+		StatePath: filepath.Join(dir, "updates.json")}
 	c := New(cfg, j)
 	st, err := c.Check(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(dir, "updates", "EmulkonSetup_0.9.1.exe")
-	if !st.Available || st.Installer != want || st.Latest.Version != "0.9.1" || st.Notified != "0.9.1" {
+	if !st.Available || st.Latest.Version != "0.9.1" || st.Latest.SHA256 != f.release.SHA256 || st.Notified != "0.9.1" {
 		t.Fatalf("состояние: %+v", st)
-	}
-	if got, _ := os.ReadFile(want); string(got) != string(f.installer) {
-		t.Fatal("скачан не тот установщик")
 	}
 	if !strings.HasSuffix(st.Page, "/releases/tag/v0.9.1") {
 		t.Fatalf("страница выпуска: %q", st.Page)
 	}
-	// Вторая проверка: файл верный — не качается заново; уведомление — только раз на версию.
+	// Вторая проверка: уведомление — только раз на версию; установщик сервер не качает никогда (#20).
 	if _, err := c.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if n := f.hits["/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe"]; n != 1 {
+	if n := f.hits["/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe"]; n != 0 {
 		t.Fatalf("установщик скачивали %d раз", n)
 	}
-	if n := len(entries(t, j, MethodAvailable)); n != 1 {
-		t.Fatalf("update.available: %d записей", n)
+	if files, _ := os.ReadDir(dir); len(files) != 1 {
+		t.Fatalf("кроме файла состояния, ничего: %v", files)
+	}
+	e := entries(t, j, MethodAvailable)
+	if len(e) != 1 || !strings.Contains(string(e[0].Payload), f.release.URL) {
+		t.Fatalf("update.available: %v", e)
 	}
 	if n := len(entries(t, j, MethodCheck)); n != 2 {
 		t.Fatalf("update.check: %d записей", n)
 	}
 	// Состояние переживает перезапуск; после обновления до 0.9.1 предложения нет.
-	if st := New(cfg, j).State(); !st.Available || st.Installer != want {
+	if st := New(cfg, j).State(); !st.Available {
 		t.Fatalf("после перезапуска: %+v", st)
 	}
 	cfg.Version = "0.9.1"
-	if st := New(cfg, j).State(); st.Available || st.Installer != "" {
+	if st := New(cfg, j).State(); st.Available {
 		t.Fatalf("после обновления: %+v", st)
-	}
-}
-
-func TestBadSumKeepsNoFile(t *testing.T) {
-	f := newFeed(t, "0.9.1")
-	f.release.SHA256 = strings.Repeat("0", 64)
-	dir := t.TempDir()
-	j := openJournal(t)
-	c := New(Config{Version: "0.9.0", FeedURL: f.srv.URL + "/latest.json", AllowHTTP: true, DownloadDir: dir}, j)
-	st, err := c.Check(context.Background())
-	if err == nil || !strings.Contains(st.Error, "SHA-256") || st.Installer != "" {
-		t.Fatalf("подменённая сумма: %+v, %v", st, err)
-	}
-	if files, _ := os.ReadDir(dir); len(files) != 0 {
-		t.Fatalf("в каталоге обновлений остались файлы: %v", files)
-	}
-	if n := len(entries(t, j, MethodAvailable)); n != 0 {
-		t.Fatal("без установщика службе не о чем сообщать трею")
-	}
-}
-
-func TestNotifyOnlyWithoutDownloadDir(t *testing.T) {
-	// Linux, Docker, запуск не службой: только сообщить, со ссылкой на страницу выпуска.
-	f := newFeed(t, "1.0.0")
-	j := openJournal(t)
-	st, err := New(Config{Version: "0.9.0", FeedURL: f.srv.URL + "/latest.json", AllowHTTP: true}, j).Check(context.Background())
-	if err != nil || !st.Available || st.Installer != "" || f.hits["/releases/download/v1.0.0/EmulkonSetup_1.0.0.exe"] != 0 {
-		t.Fatalf("без каталога: %+v, %v, %v", st, err, f.hits)
-	}
-	if e := entries(t, j, MethodAvailable); len(e) != 1 || !strings.Contains(string(e[0].Payload), "/releases/tag/v1.0.0") {
-		t.Fatalf("update.available: %v", e)
 	}
 }
 

@@ -44,6 +44,7 @@ const UINT WM_APP_ANSWER = WM_APP + 6;   // wParam = ok, lParam = std::wstring* 
 const UINT WM_APP_LOG = WM_APP + 7;      // lParam = std::wstring* — строка лога из фонового потока
 const UINT WM_APP_SERVICE = WM_APP + 8;  // lParam = ServiceResult* — запуск или остановка службы закончены
 const UINT WM_APP_UPDATE = WM_APP + 9;   // lParam = UpdateInfo* — ответ сервера о новой версии (issue #8)
+const UINT WM_APP_UPDATE_READY = WM_APP + 10;  // lParam = UpdateResult* — установщик скачан (или нет)
 const UINT_PTR kTimerUpdates = 1;         // проверка новой версии: через 30 с после запуска, затем раз в час
 
 enum Cmd : UINT {
@@ -87,6 +88,14 @@ struct App {
     bool serviceBusy = false;            // идёт запуск или остановка службы
     bool everConnected = false;          // трей уже был на связи с сервером
     UpdateInfo update;                   // новая версия по ответу сервера (GET /api/v1/updates)
+    bool updateBusy = false;             // идёт скачивание установщика
+};
+
+// UpdateResult — скачанный установщик (WM_APP_UPDATE_READY).
+struct UpdateResult {
+    bool ok = false;
+    std::wstring path;
+    std::wstring error;
 };
 
 App g;
@@ -499,33 +508,56 @@ void checkUpdatesAsync() {
 
 // onUpdate — новая версия: пункт меню; уведомление — один раз на версию (помнит настройка UpdateNotified).
 void onUpdate(const UpdateInfo& info) {
+    if (g.updateBusy) return;  // идёт скачивание — сведения не подменяем
     g.update = info;
     if (!info.available || info.version == g.cfg.updateNotified) return;
-    balloon(L"Эмулкон: вышла версия " + info.version,
-            info.installer.empty() || !isLocalServer(g.cfg.serverUrl)
-                ? L"Что нового и установщик — на странице выпуска: «Обновить до " + info.version + L"…» в меню значка."
-                : L"Установщик уже скачан: «Обновить до " + info.version + L"…» в меню значка.");
+    balloon(L"Эмулкон: вышла версия " + info.version, L"«Обновить до " + info.version + L"…» в меню значка.");
     g.cfg.updateNotified = info.version;
     save();
 }
 
-// runUpdate — запустить установщик, скачанный службой этого компьютера (мастер обновления, UAC), если он
-// там, где служба его кладёт, и SHA-256 совпала с описанием выпуска; иначе — страница выпуска.
+void openReleasePage(const UpdateInfo& u) {
+    if (u.page.rfind(L"https://", 0) == 0) ShellExecuteW(nullptr, L"open", u.page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+// runUpdate — скачать установщик в «Загрузки» (фоном, со сверкой размера и SHA-256, с меткой «из Интернета») и
+// запустить мастер обновления (UAC) — по WM_APP_UPDATE_READY. Адрес не из выпуска GitHub и сервер не этого
+// компьютера — страница выпуска (downloadAllowed).
 void runUpdate() {
     const UpdateInfo u = g.update;
-    if (!u.available) return;
-    wchar_t pd[MAX_PATH] = {};
-    GetEnvironmentVariableW(L"ProgramData", pd, MAX_PATH);
-    if (isLocalServer(g.cfg.serverUrl) && !u.installer.empty()) {
-        if (installerAllowed(u.installer, u.version, pd) && !u.sha256.empty() && fileSha256(u.installer) == u.sha256) {
-            logLine(L"обновление: запуск " + u.installer);
-            ShellExecuteW(nullptr, L"open", u.installer.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return;
-        }
-        logLine(L"обновление: установщик не прошёл проверку — " + u.installer);
-        balloon(L"Эмулкон", L"Скачанный установщик не прошёл проверку (место или SHA-256) — открываю страницу выпуска.");
+    if (!u.available || g.updateBusy) return;
+    if (!downloadAllowed(u.url, u.version, isLocalServer(g.cfg.serverUrl))) {
+        logLine(L"обновление: адрес установщика не из выпуска — открываю страницу выпуска: " + u.url);
+        openReleasePage(u);
+        return;
     }
-    if (u.page.rfind(L"https://", 0) == 0) ShellExecuteW(nullptr, L"open", u.page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    g.updateBusy = true;
+    balloon(L"Эмулкон", L"Скачиваю установщик " + u.version + L"…");
+    logLine(L"обновление: скачиваю " + u.url);
+    HWND hwnd = g.hwnd;
+    std::thread([u, hwnd] {
+        auto* r = new UpdateResult();
+        HttpResult h = httpGet(u.url, L"", 5 * 60 * 1000);
+        if (h.status != 200) {
+            r->error = h.status == 0 ? L"не скачать: " + widen(h.error) : L"HTTP " + std::to_wstring(h.status);
+        } else {
+            r->ok = saveInstaller(h.body, u, userDownloadsDir(), r->path, r->error);
+        }
+        PostMessageW(hwnd, WM_APP_UPDATE_READY, 0, reinterpret_cast<LPARAM>(r));
+    }).detach();
+}
+
+void onUpdateReady(const UpdateResult& r) {
+    g.updateBusy = false;
+    if (!r.ok) {
+        logLine(L"обновление: " + r.error);
+        balloon(L"Эмулкон: обновление не скачано", r.error);
+        return;
+    }
+    logLine(L"обновление: запуск " + r.path);
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", r.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32) {
+        balloon(L"Эмулкон", L"Установщик не запустился — он в «Загрузках»: " + r.path);
+    }
 }
 
 void showMenu() {
@@ -536,7 +568,8 @@ void showMenu() {
     AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, ws.c_str());
     if (g.update.available) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING | MF_DEFAULT, kCmdUpdate, (L"Обновить до " + g.update.version + L"…").c_str());
+        AppendMenuW(menu, MF_STRING | (g.updateBusy ? MF_GRAYED : MF_DEFAULT), kCmdUpdate,
+                    (g.updateBusy ? L"Скачивается " + g.update.version + L"…" : L"Обновить до " + g.update.version + L"…").c_str());
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (g.hasLast ? 0 : MF_GRAYED), kCmdShowLast, L"Показать последний чек");
@@ -749,6 +782,11 @@ LRESULT CALLBACK mainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_APP_UPDATE: {
             std::unique_ptr<UpdateInfo> info(reinterpret_cast<UpdateInfo*>(lp));
             onUpdate(*info);
+            return 0;
+        }
+        case WM_APP_UPDATE_READY: {
+            std::unique_ptr<UpdateResult> r(reinterpret_cast<UpdateResult*>(lp));
+            onUpdateReady(*r);
             return 0;
         }
         case WM_TIMER:

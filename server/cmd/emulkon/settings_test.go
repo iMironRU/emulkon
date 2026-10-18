@@ -110,13 +110,3 @@ func TestResolveUpdates(t *testing.T) {
 		t.Fatalf("неверный режим: %v", err)
 	}
 }
-
-func TestUpdatesDir(t *testing.T) {
-	t.Setenv("ProgramData", `C:\ProgramData`)
-	if d := updatesDir(settings{Service: true}); d != filepath.Join(`C:\ProgramData`, "Emulkon", "updates") {
-		t.Fatalf("служба: %q", d)
-	}
-	if d := updatesDir(settings{Service: false}); d != "" {
-		t.Fatalf("не служба — не скачивать: %q", d)
-	}
-}

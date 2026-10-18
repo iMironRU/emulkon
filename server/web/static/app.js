@@ -195,8 +195,7 @@ async function loadUpdates() {
   if (typeof st.page === 'string' && st.page.startsWith('https://')) {
     parts.push(el('a', { href: st.page, target: '_blank', rel: 'noopener' }, 'Что нового'), '. ');
   }
-  parts.push(st.installer ? 'Установщик уже скачан — «Обновить» в трее или в консоли «Эмулкон».'
-    : 'Установщик и пакеты — на странице выпуска.');
+  parts.push('Обновить — в меню значка Эмулкона у часов или в консоли «Эмулкон»; пакеты для Linux и Docker — на странице выпуска.');
   $('#update-banner').replaceChildren(...parts);
   wrap.hidden = false;
 }

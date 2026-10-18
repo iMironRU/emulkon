@@ -44,11 +44,9 @@ type Config struct {
 	SessionIdleTTL      time.Duration
 	// DownloadsDirs — каталоги дистрибутива (драйвер, установщик); пусто — загрузок нет.
 	DownloadsDirs []string
-	// Обновления (internal/updates, docs/local-install.md §2.3): режим off | notify, свой latest.json, каталог для
-	// установщика (только служба Windows; пусто — не скачивать).
+	// Обновления (internal/updates, docs/local-install.md §2.3): режим off | notify и свой latest.json.
 	UpdateMode string
 	UpdateURL  string
-	UpdateDir  string
 }
 
 // Записи журнала об экране устройства (models.Prompter): трей и веб-интерфейс по ним
@@ -131,7 +129,7 @@ func New(cfg Config) (*App, error) {
 	mux := http.NewServeMux()
 	upd := updates.New(updates.Config{
 		Version: cfg.Version, Mode: cfg.UpdateMode, FeedURL: cfg.UpdateURL, AllowHTTP: cfg.UpdateURL != "",
-		DownloadDir: cfg.UpdateDir, StatePath: filepath.Join(cfg.DataDir, "updates.json"), Token: cfg.ControlToken,
+		StatePath: filepath.Join(cfg.DataDir, "updates.json"), Token: cfg.ControlToken,
 	}, j)
 	upd.Register(mux)
 	dev.Register(mux)

@@ -245,7 +245,7 @@ static void testMaintenance() {
     std::wstring err;
     CHECK(parseRelease(good, false, r, err));
     CHECK(r.version == "0.9.0" && r.size == 123 && r.sha256 == sha && r.published == "2026-10-20");
-    CHECK(plainNotes(r.notes) == L"Добавлено\n• Драйвер для Linux — tests");
+    CHECK(releasePage(r) == L"https://github.com/iMironRU/emulkon/releases/tag/v0.9.0");  // «Что нового» (#21)
     // http — только для живого теста; файл — установщик той же версии; сумма — 64 hex.
     auto with = [&](const std::string& from, const std::string& to) {
         std::string s = good;
@@ -259,7 +259,10 @@ static void testMaintenance() {
     CHECK(!parseRelease(with(std::string(64, 'A'), "abc"), false, r, err));
     CHECK(!parseRelease(with("\"0.9.0\"", "\"0.9\""), false, r, err));
     CHECK(!parseRelease("не json", false, r, err));
-    CHECK(plainNotes(std::string(3000, 'x'), 100).size() <= 102);
+    Release own;
+    own.version = "0.9.0";
+    own.url = "http://127.0.0.1:8799/downloads/EmulkonSetup_0.9.0.exe";
+    CHECK(releasePage(own).empty());  // не выпуск GitHub — страницы нет
 
     // Настройки: выгрузка и разбор туда и обратно.
     std::vector<Setting> in = {{L"Addr", L"0.0.0.0:8737"}, {L"Network", L"", 1, true}, {L"LogLevel", L"debug"},
