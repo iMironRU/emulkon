@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Эмулкон — Device API и Control API
-  version: 0.8.0
+  version: 0.9.1
   description: |
     Формальная спецификация протоколов сервера эмуляции (ARCHITECTURE §5, §9).
     Правила и пояснения — в docs/protocol.md.
