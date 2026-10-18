@@ -68,6 +68,22 @@ static void testStrings() {
     t.add(Status::Fail);
     CHECK(t.ok == 2 && t.warn == 1 && t.fail == 1 && t.info == 0);
     CHECK(std::wstring(statusText(Status::Fail)).find(L"ошибка") != std::wstring::npos);
+
+    // «Исправить и обновить»: есть что исправить, и все ошибки — из исправимых.
+    Tally f;
+    f.add(Item{Status::Ok, L"Windows", L""});
+    CHECK(!f.canFix());
+    f.add(Item{Status::Warn, L"Порт 8737", L"", L"остановить другой сервер"});
+    CHECK(f.canFix() && f.fixable == 1 && f.fixableFail == 0);
+    f.add(Item{Status::Fail, L"Занятые файлы", L"", L"закрыть консоль"});
+    CHECK(f.canFix() && f.fail == 1 && f.fixableFail == 1);
+    f.add(Item{Status::Fail, L"Каталог установки", L"нет прав"});  // это мастер не исправит
+    CHECK(!f.canFix());
+    Tally info;
+    info.add(Item{Status::Info, L"Прежняя установка", L"", L"не помеха"});  // fix у сведений не в счёт
+    CHECK(!info.canFix() && info.fixable == 0);
+    CHECK(closableLocker(Locker{1, L"", L"C:\\Windows\\System32\\MMC.EXE"}));
+    CHECK(!closableLocker(Locker{1, L"1С:Предприятие", L"C:\\1c\\bin\\1cv8.exe"}) && !closableLocker(Locker{1, L"", L""}));
 }
 
 // Занятые файлы (#24): копия этого теста, запущенная из console временной установки, держит свой exe — как

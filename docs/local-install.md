@@ -121,7 +121,7 @@ HKCU\Software\Emulkon\Tray\       настройки трея (вместо %APP
   (`UpdateURL` / `EMULKON_UPDATE_URL`, по умолчанию — последний выпуск GitHub); `UpdateMode` / `EMULKON_UPDATE_MODE`:
   `off` | `notify` (по умолчанию) и только сообщает — установщик не качает (#20). Состояние — `data/updates.json` и `GET /api/v1/updates`; проверка вручную —
   `POST /control/v1/updates/check`; журнал — `update.check`, `update.available` (один раз на версию).
-- Трей раз в час спрашивает `GET /api/v1/updates`: уведомление один раз на версию (настройка `UpdateNotified`) и
+- Трей раз в 10 минут (первый раз — через 30 с) спрашивает `GET /api/v1/updates`: уведомление один раз на версию (настройка `UpdateNotified`) и
   пункт «Обновить до X…» — трей фоном качает `EmulkonSetup_<версия>.exe` в «Загрузки» пользователя с меткой «из
   Интернета» (Zone.Identifier), файл остаётся, только если сошлись размер и SHA-256 из описания выпуска, и запускает
   мастер обновления (UAC). Адрес — только выпуск GitHub (`github.com/iMironRU/emulkon/releases/download/v<версия>/`);

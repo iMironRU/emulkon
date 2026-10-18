@@ -45,7 +45,7 @@ const UINT WM_APP_LOG = WM_APP + 7;      // lParam = std::wstring* — стро�
 const UINT WM_APP_SERVICE = WM_APP + 8;  // lParam = ServiceResult* — запуск или остановка службы закончены
 const UINT WM_APP_UPDATE = WM_APP + 9;   // lParam = UpdateInfo* — ответ сервера о новой версии (issue #8)
 const UINT WM_APP_UPDATE_READY = WM_APP + 10;  // lParam = UpdateResult* — установщик скачан (или нет)
-const UINT_PTR kTimerUpdates = 1;         // проверка новой версии: через 30 с после запуска, затем раз в час
+const UINT_PTR kTimerUpdates = 1;         // новая версия: через 30 с после запуска, затем раз в 10 мин
 
 enum Cmd : UINT {
     kCmdShowLast = 100,
@@ -791,7 +791,7 @@ LRESULT CALLBACK mainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_TIMER:
             if (wp == kTimerUpdates) {
-                SetTimer(hwnd, kTimerUpdates, 60 * 60 * 1000, nullptr);  // дальше — раз в час
+                SetTimer(hwnd, kTimerUpdates, 10 * 60 * 1000, nullptr);  // дальше — раз в 10 мин: служба могла проверить позже трея
                 checkUpdatesAsync();
                 return 0;
             }
