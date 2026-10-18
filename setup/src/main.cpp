@@ -322,7 +322,7 @@ bool confirmFix() {
         if (!r.section && !r.item.fix.empty()) list += L"\n• " + r.item.fix;
     }
     const std::wstring text = L"Мастер исправит сам:" + list + L"\n\nЗатем проверит всё заново и " +
-                              (g.installed.present ? L"обновит Эмулкон." : L"установит Эмулкон.") + L" Продолжить?";
+                              (!g.installed.present ? L"установит Эмулкон." : g.installed.version == version() ? L"переустановит Эмулкон." : L"обновит Эмулкон.") + L" Продолжить?";
     return MessageBoxW(g.hwnd, text.c_str(), L"Эмулкон: исправить и продолжить", MB_YESNO | MB_ICONQUESTION) == IDYES;
 }
 
@@ -380,7 +380,9 @@ void updateButtons() {
                 pOn = !busy && g.tally.fail == 0;
                 if (g.phase == Phase::Failed) p = L"Повторить установку";
                 if (g.phase == Phase::Ready && g.tally.canFix()) {  // помехи, что мастер устранит сам
-                    p = g.installed.present ? L"Исправить и обновить" : L"Исправить и установить";
+                    p = !g.installed.present               ? L"Исправить и установить"
+                        : g.installed.version == version() ? L"Исправить и переустановить"
+                                                           : L"Исправить и обновить";
                     pOn = true;
                 }
             }
@@ -413,7 +415,7 @@ void updateButtons() {
             break;
         case Phase::Ready:
             st = maint ? L"Выберите действие"
-                       : tallyText(g.tally) + (g.tally.canFix() ? L" — мастер исправит это сам"
+                       : tallyText(g.tally) + (g.tally.canFix() ? L" — исправимо"
                                                : g.tally.fail   ? L" — исправьте ошибки и проверьте снова"
                                                                 : L"");
             break;
