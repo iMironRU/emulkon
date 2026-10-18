@@ -148,8 +148,8 @@ bool uninstall(const Options& o, const Sink& sink);
 // stopInstance закрывает трей, серверы и окна установщика, запущенные из dir, —
 // перед обновлением и удалением.
 void stopInstance(const std::wstring& dir, const Sink& sink);
-// scheduleSelfDelete — после выхода удалить свой exe и каталог dir, если он опустел:
-// запущенный exe Windows удалить не даёт, поэтому деинсталлятор убирает себя последним.
+// scheduleSelfDelete — удалить свой exe и каталог dir (если он опустел) при перезагрузке Windows:
+// запущенный exe Windows удалить не даёт; штатный способ — MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT).
 void scheduleSelfDelete(const std::wstring& dir);
 
 // --- checks.cpp ---

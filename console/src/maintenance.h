@@ -31,9 +31,11 @@ std::wstring plainNotes(const std::string& markdown, size_t maxChars = 1500);
 std::wstring updateFeedUrl(bool* overridden = nullptr);
 // fetchRelease — скачать и разобрать latest.json.
 bool fetchRelease(Release& r, std::wstring& err);
-// downloadRelease — установщик в каталог dir (оснастка — %ProgramData%\Emulkon\updates) с проверкой размера и
-// SHA-256: файл пишется, только если всё сошлось. Путь — в path.
+// downloadRelease — установщик в каталог dir (оснастка — «Загрузки» пользователя) с проверкой размера и
+// SHA-256: файл пишется, только если всё сошлось, с меткой «из Интернета», как из браузера. Путь — в path.
 bool downloadRelease(const Release& r, const std::wstring& dir, std::wstring& path, std::wstring& err);
+// userDownloadsDir — папка «Загрузки» текущего пользователя.
+std::wstring userDownloadsDir();
 // runInstaller — запустить скачанный установщик: мастер обновления (консоль уже с правами администратора).
 bool runInstaller(const std::wstring& path, std::wstring& err);
 

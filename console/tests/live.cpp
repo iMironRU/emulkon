@@ -297,7 +297,18 @@ int main() {
             CloseHandle(f);
         }
         CHECK(!setupBody.empty() && got == setupBody);
+        HANDLE z = CreateFileW((setupPath + L":Zone.Identifier").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                               OPEN_EXISTING, 0, nullptr);
+        std::string zone;
+        if (z != INVALID_HANDLE_VALUE) {
+            char buf[512];
+            DWORD n = 0;
+            if (ReadFile(z, buf, sizeof buf, &n, nullptr)) zone.assign(buf, n);
+            CloseHandle(z);
+        }
+        CHECK(zone.find("ZoneId=3") != std::string::npos && zone.find(rel.url) != std::string::npos);
     }
+    CHECK(!userDownloadsDir().empty());
     DeleteFileW(setupPath.c_str());
     rel.sha256 = std::string(64, '0');
     CHECK(!downloadRelease(rel, updates, setupPath, err) && err.find(L"контрольная сумма") != std::wstring::npos);

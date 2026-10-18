@@ -27,7 +27,7 @@ target_include_directories(console_core PUBLIC src "${COMPONENT_SRC}")
 target_compile_definitions(console_core PUBLIC EMULKON_VERSION="${PROJECT_VERSION}"
   UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_compile_options(console_core PUBLIC /utf-8 /EHsc /W3)
-target_link_libraries(console_core PUBLIC winhttp advapi32 bcrypt shell32)
+target_link_libraries(console_core PUBLIC winhttp advapi32 bcrypt shell32 ole32)
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../res/emulkon.ico" "${CMAKE_CURRENT_BINARY_DIR}/emulkon.ico" COPYONLY)
 configure_file(src/console.rc.in "${CMAKE_CURRENT_BINARY_DIR}/console.rc" @ONLY)

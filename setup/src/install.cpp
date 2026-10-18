@@ -4,6 +4,7 @@
 #include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <restartmanager.h>
 #include <shobjidl.h>
 #include <tlhelp32.h>
 
@@ -57,8 +58,8 @@ std::wstring stamp() {
 }
 
 // writeFileAtomic пишет во временный файл и подменяет им прежний. Пока прежний занят (процесс ещё
-// завершается) — повторяет до 10 секунд. Если exe так и держит чужой процесс (трей другого пользователя):
-// запущенный файл можно переименовать — он уходит в «.old-…» и удаляется при перезагрузке.
+// завершается) — повторяет до 10 секунд. Занятые файлы не переименовываются и не подменяются при перезагрузке:
+// процессы закрывает stopInstance (Restart Manager), а что не закрылось — ошибка с понятным текстом.
 bool writeFileAtomic(const std::wstring& path, const void* data, DWORD size, std::wstring& error) {
     std::wstring tmp = path + L".new";
     HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -82,10 +83,8 @@ bool writeFileAtomic(const std::wstring& path, const void* data, DWORD size, std
         if (code != ERROR_ACCESS_DENIED && code != ERROR_SHARING_VIOLATION) break;
         Sleep(500);
     }
-    std::wstring old = path + L".old-" + stamp();
-    if (MoveFileExW(path.c_str(), old.c_str(), 0) && MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH)) {
-        MoveFileExW(old.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
-        return true;
+    if (code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION) {
+        error = L"файл занят запущенной программой — закройте трей Эмулкона у всех пользователей и повторите (" + error + L")";
     }
     DeleteFileW(tmp.c_str());
     return false;
@@ -310,18 +309,37 @@ bool waitExit(DWORD pid, DWORD ms) {
     return done;
 }
 
-// enableDebugPrivilege — администратору нужна SeDebugPrivilege, чтобы завершить трей другого пользователя
-// (его процесс не даёт доступа группе «Администраторы»).
-void enableDebugPrivilege() {
-    HANDLE token;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) return;
-    TOKEN_PRIVILEGES tp{};
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-    if (LookupPrivilegeValueW(nullptr, SE_DEBUG_NAME, &tp.Privileges[0].Luid)) {
-        AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
+// closeWithRestartManager закрывает процессы, держащие файлы, через Restart Manager — так делают MSI и штатные
+// установщики: окнам — WM_QUERYENDSESSION/WM_ENDSESSION (трей убирает значок), консольным — завершение.
+// Возвращает, сколько процессов было; left — сколько осталось после.
+int closeWithRestartManager(const std::vector<std::wstring>& files, int& left) {
+    left = 0;
+    if (files.empty()) return 0;
+    DWORD session = 0;
+    WCHAR key[CCH_RM_SESSION_KEY + 1]{};
+    if (RmStartSession(&session, 0, key) != ERROR_SUCCESS) return 0;
+    std::vector<LPCWSTR> names;
+    for (const auto& f : files) names.push_back(f.c_str());
+    UINT found = 0;
+    if (RmRegisterResources(session, static_cast<UINT>(names.size()), names.data(), 0, nullptr, 0, nullptr) ==
+        ERROR_SUCCESS) {
+        UINT needed = 0, count = 0;
+        DWORD reasons = 0;
+        RmGetList(session, &needed, &count, nullptr, &reasons);
+        found = needed;
+        if (found) {
+            RmShutdown(session, RmForceShutdown, nullptr);
+            std::vector<RM_PROCESS_INFO> info(needed + 4);
+            count = static_cast<UINT>(info.size());
+            if (RmGetList(session, &needed, &count, info.data(), &reasons) == ERROR_SUCCESS) {
+                for (UINT i = 0; i < count; ++i) {
+                    if (info[i].AppStatus != RmStatusStopped && info[i].AppStatus != RmStatusStoppedOther) ++left;
+                }
+            }
+        }
     }
-    CloseHandle(token);
+    RmEndSession(session);
+    return static_cast<int>(found);
 }
 
 struct OwnWindows {
@@ -540,25 +558,24 @@ void stopInstance(const std::wstring& dir, const Sink& sink) {
     OwnWindows st{dir, {}};
     EnumWindows(closeOwnWindows, reinterpret_cast<LPARAM>(&st));
     for (DWORD pid : st.pids) waitExit(pid, 10000);
-    enableDebugPrivilege();
-    int killed = 0;
+    // Остальное (трей других пользователей, сервер, запущенный вручную) — через Restart Manager. Только сервер
+    // и трей: установщик из этого же каталога может ждать нас (удаление из «Параметров») — его не трогаем.
+    std::vector<std::wstring> files;
     for (const Proc& p : processesIn(dir)) {
-        // Принудительно — только сервер и трей. Установщик из этого же каталога может
-        // ждать нас (удаление из «Параметров») — его не трогаем.
         std::wstring name = fileName(p.path);
         if (_wcsicmp(name.c_str(), L"emulkon.exe") != 0 && _wcsicmp(name.c_str(), L"EmulkonTray.exe") != 0) continue;
-        HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, p.pid);
-        if (!h) continue;
-        if (TerminateProcess(h, 0)) {
-            WaitForSingleObject(h, 5000);
-            ++killed;
-        }
-        CloseHandle(h);
+        bool seen = false;
+        for (const auto& f : files) seen = seen || samePath(f, p.path);
+        if (!seen) files.push_back(p.path);
     }
-    if (!st.pids.empty() || killed) {
-        report(sink, Status::Info, L"Запущенный Эмулкон",
-               L"остановлен: окон закрыто — " + std::to_wstring(st.pids.size()) + L", процессов завершено — " +
-                   std::to_wstring(killed));
+    int left = 0;
+    int closed = closeWithRestartManager(files, left);
+    if (!st.pids.empty() || closed) {
+        report(sink, left ? Status::Warn : Status::Info, L"Запущенный Эмулкон",
+               L"остановлен: окон закрыто — " + std::to_wstring(st.pids.size()) + L", процессов закрыто — " +
+                   std::to_wstring(closed - left) +
+                   (left ? L"; не закрылись — " + std::to_wstring(left) + L" (закройте трей у других пользователей)"
+                         : std::wstring()));
     }
 }
 
@@ -776,7 +793,7 @@ bool uninstall(const Options& o, const Sink& sink) {
                L"не удалено файлов: " + std::to_wstring(left) + L" — они заняты; удалите " + dir + L" вручную");
     } else {
         report(sink, Status::Ok, L"Файлы программы",
-               L"удалены: " + dir + (isInside(selfPath(), dir) ? L" (сам мастер — сразу после выхода)" : L""));
+               L"удалены: " + dir + (isInside(selfPath(), dir) ? L" (сам мастер — при перезагрузке Windows)" : L""));
     }
 
     if (o.purge) {
@@ -798,16 +815,11 @@ bool uninstall(const Options& o, const Sink& sink) {
 }
 
 void scheduleSelfDelete(const std::wstring& dir) {
-    // ping — пауза ~2 с, пока процесс завершится; rmdir без /s удаляет только пустые каталоги: bin, затем корень.
-    std::wstring cmd = L"cmd.exe /d /c ping 127.0.0.1 -n 3 > nul & del /f /q \"" + selfPath() + L"\" & rmdir \"" +
-                       binDir(dir) + L"\" & rmdir \"" + dir + L"\"";
-    STARTUPINFOW si{};
-    si.cb = sizeof si;
-    PROCESS_INFORMATION pi{};
-    if (CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-    }
+    // Штатный способ Windows для занятых файлов (так делает и MSI): удалить при следующей загрузке — свой exe,
+    // затем bin и корень; каталоги удаляются, только если к тому времени пусты. Без cmd и скрытых процессов.
+    MoveFileExW(selfPath().c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+    MoveFileExW(binDir(dir).c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+    MoveFileExW(dir.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
 }
 
 }  // namespace setup

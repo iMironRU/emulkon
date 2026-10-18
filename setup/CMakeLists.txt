@@ -43,7 +43,7 @@ target_include_directories(setup_core PUBLIC src "${TRAY_SRC}" "${COMPONENT_SRC}
 target_compile_definitions(setup_core PUBLIC EMULKON_VERSION="${PROJECT_VERSION}"
   _WINDOWS UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_compile_options(setup_core PUBLIC /utf-8 /EHsc /W3)
-target_link_libraries(setup_core PUBLIC winhttp shell32 ole32 advapi32 iphlpapi ws2_32 user32)
+target_link_libraries(setup_core PUBLIC winhttp shell32 ole32 oleaut32 advapi32 rstrtmgr iphlpapi ws2_32 user32)
 
 # Драйвер Linux — в установщике, только если собран (CI): строка ресурса подставляется в setup.rc.
 set(LINUX_DRIVER_RC "")

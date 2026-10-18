@@ -368,8 +368,10 @@ func (h *Handler) scan() ([]File, error) {
 				continue
 			}
 			f.Size, f.Modified = info.Size(), info.ModTime().UTC()
+			// Файл пропал или не читается (его забрал антивирус, его заменяет установщик) — не раздаём его,
+			// а не роняем всю страницу загрузок.
 			if f.SHA256, err = h.hash(f.Name, info); err != nil {
-				return nil, err
+				continue
 			}
 			out = append(out, f)
 		}
