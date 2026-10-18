@@ -77,6 +77,24 @@ func getJSON(t *testing.T, url string, out any) int {
 	return res.StatusCode
 }
 
+// Файл, который не прочитать (пропал во время обхода, забран антивирусом), не роняет каталог (#20):
+// висячая ссылка — то же самое для теста.
+func TestCatalogSkipsUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "EmulkonDriver_0.3.0.zip", "zip")
+	if err := os.Symlink(filepath.Join(dir, "нет-такого"), filepath.Join(dir, "EmulkonSetup_0.3.0.exe")); err != nil {
+		t.Skipf("символическая ссылка недоступна: %v", err)
+	}
+	_, _, srv := newHandler(t, dir)
+	var c Catalog
+	if code := getJSON(t, srv.URL+"/api/v1/downloads", &c); code != 200 {
+		t.Fatalf("каталог: %d", code)
+	}
+	if c.DriverPackage == nil || c.Setup != nil {
+		t.Fatalf("пакет есть, нечитаемого установщика нет: %+v, %+v", c.DriverPackage, c.Setup)
+	}
+}
+
 func TestCatalogPicksNewestPerKind(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "EmulkonDriver_0.2.0.zip", "old zip")
