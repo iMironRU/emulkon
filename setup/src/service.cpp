@@ -1,6 +1,7 @@
 // Служба Windows «Emulkon», журнал событий, брандмауэр и права (docs/local-install.md §2.2).
 #include <windows.h>
 #include <aclapi.h>
+#include <netfw.h>
 #include <sddl.h>
 
 #include <string>
@@ -61,26 +62,23 @@ bool waitState(SC_HANDLE svc, DWORD want, DWORD ms) {
     }
 }
 
-// runHidden — консольная утилита без окна; код возврата.
-DWORD runHidden(std::wstring cmd) {
-    STARTUPINFOW si{};
-    si.cb = sizeof si;
-    PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        return GetLastError() | 0x80000000u;
-    }
-    WaitForSingleObject(pi.hProcess, 30000);
-    DWORD code = 1;
-    GetExitCodeProcess(pi.hProcess, &code);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return code;
+// Bstr — строка COM на время вызова.
+struct Bstr {
+    BSTR b;
+    explicit Bstr(const std::wstring& s) : b(SysAllocString(s.c_str())) {}
+    Bstr(const Bstr&) = delete;
+    Bstr& operator=(const Bstr&) = delete;
+    ~Bstr() { SysFreeString(b); }
+};
+
+template <class T>
+void release(T*& p) {
+    if (p) p->Release();
+    p = nullptr;
 }
 
-std::wstring system32(const wchar_t* exe) {
-    wchar_t buf[MAX_PATH];
-    UINT n = GetSystemDirectoryW(buf, MAX_PATH);
-    return std::wstring(buf, n) + L"\\" + exe;
+std::wstring hresultText(HRESULT hr) {
+    return HRESULT_FACILITY(hr) == FACILITY_WIN32 ? winError(HRESULT_CODE(hr)) : winError(static_cast<DWORD>(hr));
 }
 
 }  // namespace
@@ -246,16 +244,49 @@ bool registerEventSource(std::wstring& error) {
 
 void unregisterEventSource() { RegDeleteTreeW(HKEY_LOCAL_MACHINE, kEventLogKey); }
 
+// setFirewallRule — правило через API брандмауэра Windows (INetFwPolicy2), как у штатных установщиков: без netsh
+// и скрытых процессов. Прежнее правило убирается всегда — путь к программе мог измениться; нет правила и сеть
+// не нужна — брандмауэр не меняется.
 bool setFirewallRule(bool on, const std::wstring& exe, std::wstring& error) {
-    const std::wstring netsh = L"\"" + system32(L"netsh.exe") + L"\" advfirewall firewall ";
-    // Прежнее правило убираем всегда: путь к программе мог измениться. Нет правила — netsh вернёт 1, это не ошибка.
-    runHidden(netsh + L"delete rule name=\"" + kFirewallRule + L"\"");
-    if (!on) return true;
-    DWORD code = runHidden(netsh + L"add rule name=\"" + kFirewallRule +
-                           L"\" dir=in action=allow protocol=TCP localport=" + std::to_wstring(kPort) + L" program=\"" +
-                           exe + L"\" profile=any description=\"Emulkon: кассы в сети\"");
-    if (code != 0) {
-        error = L"netsh вернул код " + std::to_wstring(code);
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    INetFwPolicy2* policy = nullptr;
+    INetFwRules* rules = nullptr;
+    INetFwRule* rule = nullptr;
+    HRESULT hr = CoCreateInstance(__uuidof(NetFwPolicy2), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&policy));
+    if (SUCCEEDED(hr)) hr = policy->get_Rules(&rules);
+    const Bstr name(kFirewallRule);
+    // Правил с одним именем может быть несколько (ставили вручную) — убираем все.
+    for (int i = 0; SUCCEEDED(hr) && i < 16; ++i) {
+        if (FAILED(rules->Item(name.b, &rule))) break;
+        release(rule);
+        hr = rules->Remove(name.b);
+    }
+    if (SUCCEEDED(hr) && on) {
+        hr = CoCreateInstance(__uuidof(NetFwRule), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&rule));
+        if (SUCCEEDED(hr)) {
+            const Bstr description(L"Emulkon: кассы в сети");
+            const Bstr app(exe);
+            const Bstr port(std::to_wstring(kPort));
+            const Bstr group(L"Emulkon");
+            rule->put_Name(name.b);
+            rule->put_Description(description.b);
+            rule->put_Grouping(group.b);
+            rule->put_ApplicationName(app.b);
+            rule->put_Protocol(NET_FW_IP_PROTOCOL_TCP);
+            hr = rule->put_LocalPorts(port.b);
+            rule->put_Direction(NET_FW_RULE_DIR_IN);
+            rule->put_Action(NET_FW_ACTION_ALLOW);
+            rule->put_Profiles(NET_FW_PROFILE2_ALL);
+            rule->put_Enabled(VARIANT_TRUE);
+            if (SUCCEEDED(hr)) hr = rules->Add(rule);
+        }
+    }
+    release(rule);
+    release(rules);
+    release(policy);
+    if (SUCCEEDED(init)) CoUninitialize();
+    if (FAILED(hr)) {
+        error = L"брандмауэр Windows: " + hresultText(hr);
         return false;
     }
     return true;

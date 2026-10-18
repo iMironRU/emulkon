@@ -1015,7 +1015,8 @@ bool checkUpdatesDialog(HWND parent) {
     std::wstring path;
     {
         WaitCursor wait;
-        ok = downloadRelease(rel, machineDataDir() + L"\\updates", path, err);
+        // Не в ProgramData: exe, скачанный в общий каталог и запущенный оттуда, антивирус считает подозрительным.
+        ok = downloadRelease(rel, userDownloadsDir(), path, err);
     }
     if (!ok) {
         fail(parent, L"Обновление не скачано.", err);

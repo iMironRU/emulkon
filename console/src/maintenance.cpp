@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #include <cctype>
 #include <cstdio>
@@ -264,7 +265,24 @@ bool downloadRelease(const Release& r, const std::wstring& dir, std::wstring& pa
         err = path + L": " + lastError(code);
         return false;
     }
+    // Метка «из Интернета» (Zone.Identifier), как у файла из браузера: Windows проверяет его при запуске
+    // (SmartScreen, антивирус) как обычную загрузку, а не как exe, тихо появившийся на диске.
+    const std::string zone = "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=" + r.url + "\r\n";
+    HANDLE z = CreateFileW((path + L":Zone.Identifier").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (z != INVALID_HANDLE_VALUE) {
+        WriteFile(z, zone.data(), static_cast<DWORD>(zone.size()), &written, nullptr);
+        CloseHandle(z);
+    }
     return true;
+}
+
+std::wstring userDownloadsDir() {
+    PWSTR p = nullptr;
+    std::wstring dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &p))) dir = p;
+    CoTaskMemFree(p);
+    return dir;
 }
 
 bool runInstaller(const std::wstring& path, std::wstring& err) {
