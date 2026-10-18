@@ -1,9 +1,13 @@
-﻿# vm.ps1 — команда PowerShell в тестовой ВМ Windows (new-vm.ps1) по SSH: Administrator, ключ ~/.ssh/emulkon_vm_ed25519
-# (вход только по ключу — пароль не нужен и не используется).
+﻿# vm.ps1 — команда PowerShell в тестовой ВМ Windows (new-vm.ps1) по SSH: вход «Администратор» (встроенный админ
+# русской Windows), ключ ~/.ssh/emulkon_vm_ed25519 (только по ключу — пароль не нужен).
 #
 #   tests\windows\vm.ps1 '$PSVersionTable.PSVersion'           # команда; код возврата — как в ВМ
-#   tests\windows\vm.ps1 -Put dist\downloads\EmulkonSetup_X.exe # файл в C:\Users\Administrator (scp)
+#   tests\windows\vm.ps1 -Put dist\downloads\EmulkonSetup_X.exe # файл в ВМ (scp; см. ниже)
 #   tests\windows\vm.ps1 -Get C:/Windows/Temp/x.log,.           # файл из ВМ
+#
+# Передача файлов: scp в этой ВМ ненадёжен (в системе уживаются встроенный OpenSSH 8.1 и OpenSSH 10 из MSI,
+# берётся не та подсистема sftp). Надёжный путь для бинарников — HTTP: на хосте `serve.ps1 -Dir <папка>`, в ВМ
+# `Invoke-WebRequest http://172.27.144.1:8099/<имя> -OutFile ...` (172.27.144.1 — хост в «Default Switch»).
 #
 # Сервер Эмулкона этого компьютера из ВМ — по адресу шлюза «Default Switch» (Get-NetRoute 0.0.0.0/0).
 # Сохранять в UTF-8 with BOM.
