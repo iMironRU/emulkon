@@ -1,4 +1,6 @@
 // Модульные тесты установщика: пути и разбор строк (без установки в систему).
+#include <windows.h>
+
 #include <cstdio>
 #include <string>
 
@@ -68,9 +70,63 @@ static void testStrings() {
     CHECK(std::wstring(statusText(Status::Fail)).find(L"ошибка") != std::wstring::npos);
 }
 
-int main() {
+// Занятые файлы (#24): копия этого теста, запущенная из console временной установки, держит свой exe — как
+// консоль MMC держит оснастку. Её установщик не закрывает: blockingLockers называет её. Свой процесс — не мешает.
+static void testLockers() {
+    wchar_t tmp[MAX_PATH], self[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    GetModuleFileNameW(nullptr, self, MAX_PATH);
+    const std::wstring dir = std::wstring(tmp) + L"emulkon-setup-lockers";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    CreateDirectoryW(consoleDir(dir).c_str(), nullptr);
+    CHECK(blockingLockers(dir).empty());
+
+    const std::wstring holder = consoleDir(dir) + L"\\holder.exe";
+    CHECK(CopyFileW(self, holder.c_str(), FALSE));
+    std::wstring cmd = L"\"" + holder + L"\" --hold";
+    STARTUPINFOW si{};
+    si.cb = sizeof si;
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        Sleep(300);
+        const std::vector<Locker> busy = blockingLockers(dir);
+        CHECK(busy.size() == 1 && busy[0].pid == pi.dwProcessId && samePath(busy[0].exe, holder));
+        CHECK(lockersText(busy).find(L"holder.exe") != std::wstring::npos);
+        CHECK(!fileLockers({holder}).empty());
+        TerminateProcess(pi.hProcess, 0);
+        WaitForSingleObject(pi.hProcess, 5000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        CHECK(!"не запустить копию теста");
+    }
+    CHECK(blockingLockers(dir).empty());
+
+    // Сервер, трей и мастер из каталога установки закрывает сам установщик; чужой emulkon.exe — нет.
+    const DWORD me = GetCurrentProcessId();
+    CHECK(closedBySetup(Locker{me + 1, L"", dir + L"\\bin\\EmulkonTray.exe"}, dir));
+    CHECK(closedBySetup(Locker{me + 1, L"", dir + L"\\bin\\emulkon.exe"}, dir));
+    CHECK(!closedBySetup(Locker{me + 1, L"", L"C:\\Other\\emulkon.exe"}, dir));
+    CHECK(!closedBySetup(Locker{me + 1, L"Консоль управления Microsoft", L"C:\\Windows\\System32\\mmc.exe"}, dir));
+    CHECK(closedBySetup(Locker{me, L"", L""}, dir));
+    CHECK(lockersText({{1, L"Консоль управления Microsoft", L"C:\\Windows\\System32\\mmc.exe"},
+                       {1, L"Консоль управления Microsoft", L"C:\\Windows\\System32\\mmc.exe"},
+                       {2, L"1С:Предприятие", L"C:\\1c\\1cv8.exe"}}) ==
+          L"консоль «Эмулкон» (mmc.exe), 1С:Предприятие (1cv8.exe)");
+
+    DeleteFileW(holder.c_str());
+    RemoveDirectoryW(consoleDir(dir).c_str());
+    RemoveDirectoryW(dir.c_str());
+}
+
+int wmain(int argc, wchar_t** argv) {
+    if (argc > 1 && std::wstring(argv[1]) == L"--hold") {  // копия для testLockers: держит свой exe
+        Sleep(30000);
+        return 0;
+    }
     testPaths();
     testStrings();
+    testLockers();
     std::printf("setup_unit: %d passed, %d failed\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

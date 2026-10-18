@@ -246,6 +246,14 @@ Tally preChecks(const Options& o, const Sink& sink) {
                       (inst.present ? L"; установлена версия " + inst.version + L" — будет обновлена" : std::wstring()));
         }
     }
+    // Файлы, которые установка заменит, держит программа, которую установщик не закрывает (консоль MMC, 1С) — #24.
+    if (dirExists(dir)) {
+        const std::vector<Locker> busy = blockingLockers(dir);
+        if (!busy.empty()) {
+            c.add(Status::Fail, L"Занятые файлы",
+                  L"файлы Эмулкона держит: " + lockersText(busy) + L" — закройте и нажмите «Проверить снова»");
+        }
+    }
     Installed legacy = findLegacyInstalled();
     checkPort(c, dir, legacy.dir);
     if (legacy.present) {
