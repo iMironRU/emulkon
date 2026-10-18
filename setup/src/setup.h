@@ -145,6 +145,21 @@ bool install(const Options& o, const Sink& sink);  // установка, обн
 // брандмауэра; файлы не трогает, службу перезапускает, если сменился адрес.
 bool modify(const Options& o, const Sink& sink);
 bool uninstall(const Options& o, const Sink& sink);
+// Locker — процесс, который держит файл (Restart Manager): имя для человека и путь к exe.
+struct Locker {
+    unsigned long pid = 0;
+    std::wstring name;  // «Консоль управления Microsoft», «1С:Предприятие»…
+    std::wstring exe;   // полный путь; пусто — не узнать (процесс другого пользователя)
+};
+// fileLockers — процессы, которые держат files (загруженная DLL, запущенный exe, открытый файл).
+std::vector<Locker> fileLockers(const std::vector<std::wstring>& files);
+// closedBySetup — такой процесс установщик закроет сам: сервер, трей, мастер из каталога dir и сам установщик.
+bool closedBySetup(const Locker& l, const std::wstring& dir);
+// blockingLockers — кто держит файлы установки в dir и не будет закрыт установщиком (#24): пока они есть, ставить
+// нельзя — файлы не заменить. Проверяется до остановки службы.
+std::vector<Locker> blockingLockers(const std::wstring& dir);
+// lockersText — «консоль «Эмулкон» (mmc.exe), 1С:Предприятие (1cv8.exe)».
+std::wstring lockersText(const std::vector<Locker>& ls);
 // stopInstance закрывает трей, серверы и окна установщика, запущенные из dir, —
 // перед обновлением и удалением.
 void stopInstance(const std::wstring& dir, const Sink& sink);
