@@ -20,8 +20,13 @@ if (-not $inside -and -not $out) { throw "В CHANGELOG.md нет раздела 
 ($out -join "`n").Trim()
 if ($ChangesOnly) { return }
 ""
-"**Установка:** скачайте ``EmulkonSetup_$Version.exe`` и запустите (нужны права администратора). Подписи кода пока нет —"
-"проверьте файл по ``SHA256SUMS``. Пакет драйвера для «Драйверов оборудования» БПО — ``EmulkonDriver_$Version.zip``."
+"**Установка:** скачайте ``EmulkonSetup_$Version.exe`` и запустите (нужны права администратора). Пакет драйвера для"
+"«Драйверов оборудования» БПО — ``EmulkonDriver_$Version.zip``. Проверьте файлы по ``SHA256SUMS``."
+""
+"> **Подписи кода пока нет.** SmartScreen может предупредить о неизвестном издателе, а антивирус (в т. ч. Microsoft"
+"> Defender) — пометить установщик или забрать его в карантин. Это ложное срабатывание (эмулятор тестового"
+"> оборудования, [issue #20](https://github.com/iMironRU/emulkon/issues/20)): сверьте ``SHA256SUMS``, восстановите"
+"> из карантина и разрешите. Срабатывание облачное и непостоянное."
 ""
 "**Сервер для Linux** (x86_64, systemd): ``sudo apt install ./emulkon_$Version-1_amd64.deb`` или"
 "``sudo dnf install ./emulkon-$Version-1.x86_64.rpm`` — служба ``emulkon``, веб-интерфейс http://127.0.0.1:8737/."
