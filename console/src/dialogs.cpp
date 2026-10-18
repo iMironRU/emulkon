@@ -3,6 +3,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <mmc.h>
+#include <shellapi.h>
 
 #include <map>
 #include <mutex>
@@ -1006,12 +1007,15 @@ bool checkUpdatesDialog(HWND parent) {
                     kTitle, MB_OK | MB_ICONINFORMATION);
         return false;
     }
-    std::wstring text = L"Вышла версия " + latest + when + L". Установлена " + installed + L".";
-    const std::wstring notes = plainNotes(rel.notes);
-    if (!notes.empty()) text += L"\n\nЧто нового:\n" + notes;
-    text += L"\n\nСкачать и установить? Установщик проверяется по SHA-256 из описания выпуска; откроется мастер "
-            L"обновления — он перезапустит службу. Драйверы в базах 1С обновятся сами при подключении.";
-    if (ask(parent, text, MB_ICONQUESTION) != IDYES) return false;
+    // Коротко (#21): что нового — на странице выпуска, а не простынёй в окне.
+    const std::wstring page = releasePage(rel);
+    std::wstring text = L"Вышла версия " + latest + when + L". Установлена " + installed + L".\n\nСкачать и установить? "
+                        L"Установщик проверяется по SHA-256 из описания выпуска; откроется мастер обновления — он "
+                        L"перезапустит службу. Драйверы в базах 1С обновятся сами при подключении.";
+    if (!page.empty()) text += L"\n\n«Нет» — открыть «Что нового»: " + page;
+    const int answer = MessageBoxW(parent, text.c_str(), kTitle, MB_ICONQUESTION | (page.empty() ? MB_YESNO : MB_YESNOCANCEL));
+    if (answer == IDNO && !page.empty()) ShellExecuteW(parent, L"open", page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (answer != IDYES) return false;
     std::wstring path;
     {
         WaitCursor wait;

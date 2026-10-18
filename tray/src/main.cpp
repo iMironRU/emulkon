@@ -28,6 +28,7 @@
 #include "doc.h"
 #include "stream.h"
 #include "ui.h"
+#include "updates.h"
 
 using namespace tray;
 
@@ -42,6 +43,9 @@ const UINT WM_APP_PROMPT = WM_APP + 5;   // lParam = PromptEvent* — экран
 const UINT WM_APP_ANSWER = WM_APP + 6;   // wParam = ok, lParam = std::wstring* — ответ с экрана отправлен
 const UINT WM_APP_LOG = WM_APP + 7;      // lParam = std::wstring* — строка лога из фонового потока
 const UINT WM_APP_SERVICE = WM_APP + 8;  // lParam = ServiceResult* — запуск или остановка службы закончены
+const UINT WM_APP_UPDATE = WM_APP + 9;   // lParam = UpdateInfo* — ответ сервера о новой версии (issue #8)
+const UINT WM_APP_UPDATE_READY = WM_APP + 10;  // lParam = UpdateResult* — установщик скачан (или нет)
+const UINT_PTR kTimerUpdates = 1;         // проверка новой версии: через 30 с после запуска, затем раз в час
 
 enum Cmd : UINT {
     kCmdShowLast = 100,
@@ -60,6 +64,7 @@ enum Cmd : UINT {
     kCmdServiceStart,
     kCmdServiceStop,
     kCmdMaintain,
+    kCmdUpdate,
 };
 
 struct App {
@@ -82,6 +87,15 @@ struct App {
     bool serverAutostartTried = false;   // автозапуск сервера — один раз за запуск трея
     bool serviceBusy = false;            // идёт запуск или остановка службы
     bool everConnected = false;          // трей уже был на связи с сервером
+    UpdateInfo update;                   // новая версия по ответу сервера (GET /api/v1/updates)
+    bool updateBusy = false;             // идёт скачивание установщика
+};
+
+// UpdateResult — скачанный установщик (WM_APP_UPDATE_READY).
+struct UpdateResult {
+    bool ok = false;
+    std::wstring path;
+    std::wstring error;
 };
 
 App g;
@@ -476,12 +490,87 @@ void save() {
     if (!saveConfig(g.configPath, g.cfg)) balloon(L"Эмулкон", L"Не удалось сохранить настройки: " + g.configPath);
 }
 
+// --- новая версия (docs/local-install.md §2.3, issue #8) ---
+
+// checkUpdatesAsync — GET /api/v1/updates в фоне; ответ — WM_APP_UPDATE. Сервер сам проверяет выпуски раз в сутки.
+void checkUpdatesAsync() {
+    std::wstring url = g.cfg.serverUrl;
+    while (!url.empty() && url.back() == L'/') url.pop_back();
+    url += L"/api/v1/updates";
+    HWND hwnd = g.hwnd;
+    std::thread([url, hwnd] {
+        HttpResult r = httpGet(url, L"", 10000);
+        auto* info = new UpdateInfo();
+        if (r.status != 200 || !parseUpdateState(r.body, *info)) *info = UpdateInfo{};
+        PostMessageW(hwnd, WM_APP_UPDATE, 0, reinterpret_cast<LPARAM>(info));
+    }).detach();
+}
+
+// onUpdate — новая версия: пункт меню; уведомление — один раз на версию (помнит настройка UpdateNotified).
+void onUpdate(const UpdateInfo& info) {
+    if (g.updateBusy) return;  // идёт скачивание — сведения не подменяем
+    g.update = info;
+    if (!info.available || info.version == g.cfg.updateNotified) return;
+    balloon(L"Эмулкон: вышла версия " + info.version, L"«Обновить до " + info.version + L"…» в меню значка.");
+    g.cfg.updateNotified = info.version;
+    save();
+}
+
+void openReleasePage(const UpdateInfo& u) {
+    if (u.page.rfind(L"https://", 0) == 0) ShellExecuteW(nullptr, L"open", u.page.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+// runUpdate — скачать установщик в «Загрузки» (фоном, со сверкой размера и SHA-256, с меткой «из Интернета») и
+// запустить мастер обновления (UAC) — по WM_APP_UPDATE_READY. Адрес не из выпуска GitHub и сервер не этого
+// компьютера — страница выпуска (downloadAllowed).
+void runUpdate() {
+    const UpdateInfo u = g.update;
+    if (!u.available || g.updateBusy) return;
+    if (!downloadAllowed(u.url, u.version, isLocalServer(g.cfg.serverUrl))) {
+        logLine(L"обновление: адрес установщика не из выпуска — открываю страницу выпуска: " + u.url);
+        openReleasePage(u);
+        return;
+    }
+    g.updateBusy = true;
+    balloon(L"Эмулкон", L"Скачиваю установщик " + u.version + L"…");
+    logLine(L"обновление: скачиваю " + u.url);
+    HWND hwnd = g.hwnd;
+    std::thread([u, hwnd] {
+        auto* r = new UpdateResult();
+        HttpResult h = httpGet(u.url, L"", 5 * 60 * 1000);
+        if (h.status != 200) {
+            r->error = h.status == 0 ? L"не скачать: " + widen(h.error) : L"HTTP " + std::to_wstring(h.status);
+        } else {
+            r->ok = saveInstaller(h.body, u, userDownloadsDir(), r->path, r->error);
+        }
+        PostMessageW(hwnd, WM_APP_UPDATE_READY, 0, reinterpret_cast<LPARAM>(r));
+    }).detach();
+}
+
+void onUpdateReady(const UpdateResult& r) {
+    g.updateBusy = false;
+    if (!r.ok) {
+        logLine(L"обновление: " + r.error);
+        balloon(L"Эмулкон: обновление не скачано", r.error);
+        return;
+    }
+    logLine(L"обновление: запуск " + r.path);
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", r.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32) {
+        balloon(L"Эмулкон", L"Установщик не запустился — он в «Загрузках»: " + r.path);
+    }
+}
+
 void showMenu() {
     HMENU menu = CreatePopupMenu();
     std::wstring head = g.connected ? L"Эмулкон — на связи" : L"Эмулкон — " + g.status;
     AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, head.c_str());
     std::wstring ws = L"Рабочее место: " + effectiveWorkstation(g.cfg) + L" · " + g.cfg.serverUrl;
     AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, ws.c_str());
+    if (g.update.available) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING | (g.updateBusy ? MF_GRAYED : MF_DEFAULT), kCmdUpdate,
+                    (g.updateBusy ? L"Скачивается " + g.update.version + L"…" : L"Обновить до " + g.update.version + L"…").c_str());
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (g.hasLast ? 0 : MF_GRAYED), kCmdShowLast, L"Показать последний чек");
     AppendMenuW(menu, MF_STRING, kCmdOpenWeb, L"Открыть веб-интерфейс");
@@ -566,6 +655,9 @@ void command(UINT id) {
             return;
         case kCmdServiceStop:
             serviceAsync(true, false);
+            return;
+        case kCmdUpdate:
+            runUpdate();
             return;
         case kCmdMaintain: {
             std::wstring exe = setupExe();  // мастер попросит права администратора (UAC)
@@ -687,6 +779,23 @@ LRESULT CALLBACK mainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         }
+        case WM_APP_UPDATE: {
+            std::unique_ptr<UpdateInfo> info(reinterpret_cast<UpdateInfo*>(lp));
+            onUpdate(*info);
+            return 0;
+        }
+        case WM_APP_UPDATE_READY: {
+            std::unique_ptr<UpdateResult> r(reinterpret_cast<UpdateResult*>(lp));
+            onUpdateReady(*r);
+            return 0;
+        }
+        case WM_TIMER:
+            if (wp == kTimerUpdates) {
+                SetTimer(hwnd, kTimerUpdates, 60 * 60 * 1000, nullptr);  // дальше — раз в час
+                checkUpdatesAsync();
+                return 0;
+            }
+            break;
         case WM_APP_ANSWER: {
             std::unique_ptr<std::wstring> msg(reinterpret_cast<std::wstring*>(lp));
             g.terminal.answerSent(wp != 0, *msg);
@@ -894,6 +1003,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     g.iconOff = makeIcon(false, iconSize);
     addIcon();
     startStream();
+    SetTimer(g.hwnd, kTimerUpdates, 30 * 1000, nullptr);  // новая версия: первый раз через 30 с
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

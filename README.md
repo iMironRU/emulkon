@@ -146,6 +146,8 @@ docker run -d --name emulkon -p 8737:8737 -e EMULKON_DEVICE_TOKEN=… -e EMULKON
 | `EMULKON_JOURNAL_MAX_FILES` | `8` | сколько файлов журнала хранить |
 | `EMULKON_SESSION_IDLE_TTL` | `24h` | жизнь простаивающей сессии |
 | `EMULKON_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `EMULKON_UPDATE_MODE` | `notify` | новые выпуски: `off` или `notify` — раз в сутки; служба Windows скачивает установщик, ставит человек (трей, консоль) |
+| `EMULKON_UPDATE_URL` | выпуски GitHub | свой `latest.json` |
 
 Без токенов сервер предназначен только для локальной работы: при прослушивании не-localhost он предупреждает в
 логе, UI показывает плашку.

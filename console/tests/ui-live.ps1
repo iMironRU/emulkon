@@ -391,7 +391,7 @@ try {
         $text = [U]::AllText($box)
         Check ($text -match "описания выпуска нет|последняя версия|Вышла версия|Не удалось проверить") "итог: $($text.Substring(0, [Math]::Min(90, $text.Length)))…"
         # Вопрос — «Нет» (7); сообщение с одной кнопкой — как Esc (2): кнопка «ОК» окна-сообщения не IDOK.
-        [U]::Command($box, $(if ($text -like "*Скачать и установить?*") { 7 } else { 2 }))
+        [U]::Command($box, 2)  # «Отмена» / «ОК»: «Нет» открыл бы «Что нового» в браузере
         Start-Sleep -Milliseconds 500
         if ((Wait-Top "#32770" "Эмулкон" -sec 1) -ne [IntPtr]::Zero) { [U]::Command((Wait-Top "#32770" "Эмулкон" -sec 1), 1) }
     }

@@ -6,6 +6,7 @@
 #include "doc.h"
 #include "sse.h"
 #include "stream.h"
+#include "updates.h"
 
 using namespace tray;
 
@@ -116,7 +117,70 @@ static void testPrompt() {
     CHECK(!parseJournalEntry(open, doc));  // запись экрана — не документ
     CHECK(kindTitle("slip") == L"Слип терминала");
 }
+// Новая версия (issue #8, #20): ответ сервера, «свой» сервер, откуда можно скачать и как сохраняется установщик.
+static void testUpdates() {
+    UpdateInfo u;
+    const std::string gh = "https://github.com/iMironRU/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe";
+    CHECK(parseUpdateState(R"({"current":"0.9.0","mode":"notify","available":true,"page":"https://github.com/iMironRU/emulkon/releases/tag/v0.9.1",)"
+                           R"("latest":{"version":"0.9.1","published":"2026-11-01","sha256":"ABCDEF","size":3,"url":")" + gh + R"("}})",
+                           u));
+    CHECK(u.available && u.version == L"0.9.1" && u.current == L"0.9.0" && u.sha256 == L"abcdef" && u.published == L"2026-11-01");
+    CHECK(u.url == widen(gh) && u.size == 3);
+    CHECK(parseUpdateState(R"({"current":"0.9.0","available":false})", u) && !u.available);
+    CHECK(parseUpdateState(R"({"available":true})", u) && !u.available);  // без версии — нечего предлагать
+    CHECK(!parseUpdateState("не json", u));
+
+    CHECK(isLocalServer(L"http://127.0.0.1:8737") && isLocalServer(L"http://LOCALHOST:8737/") && isLocalServer(L"http://[::1]:8737"));
+    CHECK(!isLocalServer(L"http://kassa-srv:8737") && !isLocalServer(L"http://127.0.0.10:8737") && !isLocalServer(L"http://localhost.evil:8737"));
+
+    // Выпуск GitHub — от любого сервера; свой адрес — только от сервера этого компьютера.
+    CHECK(downloadAllowed(widen(gh), L"0.9.1", false));
+    CHECK(!downloadAllowed(L"https://mirror.local/EmulkonSetup_0.9.1.exe", L"0.9.1", false));
+    CHECK(downloadAllowed(L"https://mirror.local/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
+    CHECK(downloadAllowed(L"http://127.0.0.1:8799/downloads/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
+    CHECK(!downloadAllowed(L"https://github.com/iMironRU/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.2.exe", L"0.9.1", false));
+    CHECK(!downloadAllowed(L"https://github.com/evil/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe", L"0.9.1", false));
+    CHECK(!downloadAllowed(L"ftp://x/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
+    CHECK(!downloadAllowed(L"file:///C:/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
+    CHECK(!downloadAllowed(L"https://x/a/../EmulkonSetup_0.9.1.exe", L"0.9.1", true));
+    CHECK(!downloadAllowed(L"https://x/EmulkonSetup_0.9.1\\..\\x.exe", L"0.9.1\\..\\x", true));
+    CHECK(!downloadAllowed(L"https://x/EmulkonSetup_.exe", L"", true));
+
+    CHECK(sha256Hex("abc") == L"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");  // SHA-256("abc")
+
+    // Сохранение: только верный файл, с меткой «из Интернета».
+    wchar_t tmp[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    const std::wstring dir = std::wstring(tmp) + L"emulkon-tray-updates";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    UpdateInfo r;
+    r.version = L"0.9.1";
+    r.url = widen(gh);
+    r.sha256 = sha256Hex("abc");
+    r.size = 3;
+    std::wstring path, err;
+    CHECK(saveInstaller("abc", r, dir, path, err) && path == dir + L"\\EmulkonSetup_0.9.1.exe");
+    std::string zone;
+    if (FILE* z = _wfopen((path + L":Zone.Identifier").c_str(), L"rb")) {
+        char buf[512];
+        zone.assign(buf, std::fread(buf, 1, sizeof buf, z));
+        std::fclose(z);
+    }
+    CHECK(zone.find("ZoneId=3") != std::string::npos && zone.find(gh) != std::string::npos);
+    DeleteFileW(path.c_str());
+    CHECK(!saveInstaller("abd", r, dir, path, err) && err.find(L"SHA-256") != std::wstring::npos);
+    CHECK(GetFileAttributesW((dir + L"\\EmulkonSetup_0.9.1.exe").c_str()) == INVALID_FILE_ATTRIBUTES);
+    r.size = 4;
+    CHECK(!saveInstaller("abc", r, dir, path, err) && err.find(L"размер") == 0);
+    r.size = 3;
+    r.version = L"0.9.1\\..\\..\\x";
+    CHECK(!saveInstaller("abc", r, dir, path, err));
+    RemoveDirectoryW(dir.c_str());
+    CHECK(!userDownloadsDir().empty());
+}
+
 int main() {
+    testUpdates();
     testSse();
     testPrompt();
     testDoc();

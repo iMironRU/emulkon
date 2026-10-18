@@ -94,6 +94,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DownloadsCatalog" }
 
+  /api/v1/updates:
+    get:
+      tags: [downloads]
+      operationId: getUpdates
+      summary: Новый выпуск Эмулкона
+      description: |
+        Что сервер знает о выпусках (docs/local-install.md §2.3): раз в сутки читает `latest.json` последнего выпуска
+        и только сообщает. Установщик (`latest.url`) качает и ставит человек — трей или консоль, со сверкой размера и
+        SHA-256. Секретов нет — без токена: трей и веб-интерфейс.
+      security: []
+      responses:
+        "200":
+          description: Состояние
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateState" }
+
   /api/v1/driver/update:
     get:
       tags: [downloads]
@@ -801,6 +818,22 @@ paths:
                   reset_devices: { type: integer }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /control/v1/updates/check:
+    post:
+      tags: [control]
+      operationId: checkUpdates
+      summary: Проверить выпуски сейчас
+      description: |
+        То же, что ежесуточная проверка: `latest.json`, скачивание установщика (служба Windows), журнал — `update.check`,
+        при новой версии один раз — `update.available`. Ошибка — в поле `error` ответа.
+      responses:
+        "200":
+          description: Состояние после проверки
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
 security:
   - control: []
 
@@ -887,6 +920,27 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
+    UpdateState:
+      type: object
+      required: [current, mode, available]
+      properties:
+        current: { type: string, description: Версия этого сервера }
+        mode: { type: string, enum: ["off", "notify"], description: "UpdateMode / EMULKON_UPDATE_MODE" }
+        checked_at: { type: string, format: date-time }
+        error: { type: string, description: Почему последняя проверка не удалась }
+        available: { type: boolean, description: Последний выпуск новее этого сервера }
+        page: { type: string, description: Страница выпуска (что нового, файлы для других ОС) }
+        notified: { type: string, description: Версия, о которой уже записано update.available }
+        latest:
+          type: object
+          description: Описание последнего выпуска — latest.json
+          properties:
+            version: { type: string }
+            published: { type: string }
+            url: { type: string }
+            sha256: { type: string }
+            size: { type: integer }
+            notes: { type: string }
     Error:
       type: object
       required: [error]

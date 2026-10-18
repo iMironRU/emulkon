@@ -642,10 +642,12 @@ bool install(const Options& o, const Sink& sink) {
 
     // 2. Данные службы — ProgramData, прежняя установка — переносится.
     const std::wstring data = machineDataDir();
-    for (const wchar_t* sub : {L"\\data", L"\\logs", L"\\backup", L"\\updates"}) ensureDir(data + sub);
+    for (const wchar_t* sub : {L"\\data", L"\\logs", L"\\backup"}) ensureDir(data + sub);
+    // Установщики, скачанные консолью 0.9.0 в ProgramData: теперь обновление качается в «Загрузки» (#20).
+    removeTree(data + L"\\updates");
     migrateLegacy(legacy, sink);
     if (secureMachineData(data, error)) {
-        report(sink, Status::Ok, L"Данные службы", data + L": data, logs, backup, updates — пишут служба и администраторы");
+        report(sink, Status::Ok, L"Данные службы", data + L": data, logs, backup — пишут служба и администраторы");
     } else {
         report(sink, Status::Warn, L"Данные службы", L"права на " + data + L" не выставлены: " + error);
     }
