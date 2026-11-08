@@ -16,7 +16,8 @@ namespace console {
 
 namespace {
 
-const char kFeed[] = "https://github.com/iMironRU/emulkon/releases/latest/download/latest.json";
+// Адрес выпусков не задан: обновления — заменой файла в публикации.
+const char kFeed[] = "";
 
 bool isHex64(const std::string& s) {
     if (s.size() != 64) return false;

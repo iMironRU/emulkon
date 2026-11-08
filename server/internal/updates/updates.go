@@ -27,8 +27,9 @@ import (
 	"emulkon/internal/secret"
 )
 
-// DefaultFeed — latest.json последнего обычного (не предварительного) выпуска.
-const DefaultFeed = "https://github.com/iMironRU/emulkon/releases/latest/download/latest.json"
+// DefaultFeed — latest.json выпуска. В этой сборке адрес не задан: обновления
+// выкладываются заменой файла в публикации, проверка выключена (ModeOff по умолчанию).
+const DefaultFeed = ""
 
 // Режимы (UpdateMode): off — не проверять; notify — проверять и сообщать.
 const (

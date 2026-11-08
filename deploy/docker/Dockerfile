@@ -17,7 +17,6 @@ RUN mkdir -p /out/data
 FROM gcr.io/distroless/static-debian12:nonroot
 LABEL org.opencontainers.image.title="Эмулкон" \
       org.opencontainers.image.description="ЭМУЛЯТОР подключаемого оборудования 1С:БПО — сервер эмуляции" \
-      org.opencontainers.image.source="https://github.com/iMironRU/emulkon" \
       org.opencontainers.image.url="https://imiron.ru/emulkon/" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/emulkon /emulkon

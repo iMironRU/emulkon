@@ -112,7 +112,7 @@ func resolve(f flags, reg registryValues, exe string) (settings, error) {
 		s.DownloadsDirs = defaultDownloadsDirs(exe)
 	}
 	s.LogLevel = pick("log_level", "", "", "EMULKON_LOG_LEVEL", regLogLevel, "info")
-	s.UpdateMode = strings.ToLower(pick("update_mode", "", "", "EMULKON_UPDATE_MODE", regUpdateMode, updates.ModeNotify))
+	s.UpdateMode = strings.ToLower(pick("update_mode", "", "", "EMULKON_UPDATE_MODE", regUpdateMode, updates.ModeOff))
 	if !updates.ValidMode(s.UpdateMode) {
 		return s, fmt.Errorf("режим обновлений %q (%s): допустимо off или notify", s.UpdateMode, s.Sources["update_mode"])
 	}

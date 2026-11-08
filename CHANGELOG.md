@@ -5,6 +5,12 @@
 
 ## [Не выпущено]
 
+## [0.9.4.1] — 2026-11-08
+
+Сборка для публикации: проверка обновлений по умолчанию выключена (`UpdateMode=off`, адрес выпусков не задан),
+из документации, описания Docker-образа и метаданных пакетов убраны адреса выпусков. Состав и поведение
+эмулятора — как в 0.9.4.
+
 ## [0.9.4] — 2026-10-19
 
 Честно про антивирус: пока нет подписи кода, установщик иногда помечается — это ложное срабатывание.
@@ -135,11 +141,3 @@
 
 Модели всех 12 типов оборудования требований к драйверам 4.8, сценарии сбоев, журнал, веб-интерфейс, трей,
 установщик для пользователя, страница загрузок и самообновление драйвера.
-
-[Не выпущено]: https://github.com/iMironRU/emulkon/compare/v0.9.4...HEAD
-[0.9.4]: https://github.com/iMironRU/emulkon/releases/tag/v0.9.4
-[0.9.3]: https://github.com/iMironRU/emulkon/releases/tag/v0.9.3
-[0.9.2]: https://github.com/iMironRU/emulkon/releases/tag/v0.9.2
-[0.9.1]: https://github.com/iMironRU/emulkon/releases/tag/v0.9.1
-[0.9.0]: https://github.com/iMironRU/emulkon/releases/tag/v0.9.0
-[0.8.0]: https://github.com/iMironRU/emulkon/releases/tag/v0.8.0

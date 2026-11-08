@@ -8,7 +8,7 @@ version_schema: semver
 release: 1
 section: misc
 priority: optional
-maintainer: iMironRU <https://github.com/iMironRU/emulkon>
+maintainer: Emulkon
 vendor: imiron.ru
 homepage: https://imiron.ru/emulkon/
 license: Apache-2.0
