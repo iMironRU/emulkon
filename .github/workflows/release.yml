@@ -32,8 +32,8 @@ jobs:
             tar -xzf "cmake-$v-linux-x86_64.tar.gz" -C /opt
             ln -sf "/opt/cmake-$v-linux-x86_64/bin/"* /usr/local/bin/
           else
-            echo "GitHub недоступен — ставим CMake с PyPI"
-            python3 -m pip install --no-cache-dir --quiet "cmake==$v"
+            echo "GitHub недоступен — ставим CMake из репозитория AlmaLinux (зеркала, не GitHub)"
+            dnf install -y -q cmake ninja-build > /dev/null
           fi
           cmake --version | head -n 1
       - uses: actions/checkout@v7
