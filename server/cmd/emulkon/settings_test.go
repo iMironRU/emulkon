@@ -93,12 +93,13 @@ func TestDefaultDownloadsDirs(t *testing.T) {
 	}
 }
 
-// Обновления (issue #8): по умолчанию notify; режим из реестра или окружения; неверный режим — ошибка запуска.
+// Обновления: по умолчанию off (адрес выпусков в сборке не задан); режим из реестра или окружения;
+// неверный режим — ошибка запуска.
 func TestResolveUpdates(t *testing.T) {
 	clearEnv(t)
 	f, _ := parseFlags(nil)
 	s, err := resolve(f, registryValues{}, "")
-	if err != nil || s.UpdateMode != "notify" || s.UpdateURL != "" || s.Sources["update_mode"] != "default" {
+	if err != nil || s.UpdateMode != "off" || s.UpdateURL != "" || s.Sources["update_mode"] != "default" {
 		t.Fatalf("по умолчанию: %+v, %v", s, err)
 	}
 	s, err = resolve(f, registryValues{regUpdateMode: "OFF", regUpdateURL: "https://example.org/latest.json"}, "")
