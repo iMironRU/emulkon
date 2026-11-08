@@ -243,21 +243,21 @@ static void testMaintenance() {
 
     const std::string sha(64, 'a');
     const std::string good = R"({"version":"0.9.0","published":"2026-10-20","size":123,)"
-                             R"("url":"https://github.com/iMironRU/emulkon/releases/download/v0.9.0/EmulkonSetup_0.9.0.exe",)"
+                             R"("url":"https://updates.emulkon.example/releases/download/v0.9.0/EmulkonSetup_0.9.0.exe",)"
                              R"("sha256":")" + std::string(64, 'A') + R"j(","notes":"### Добавлено\n- **Драйвер** для `Linux` — [tests](tests/linux)"})j";
     Release r;
     std::wstring err;
     CHECK(parseRelease(good, false, r, err));
     CHECK(r.version == "0.9.0" && r.size == 123 && r.sha256 == sha && r.published == "2026-10-20");
-    CHECK(releasePage(r) == L"https://github.com/iMironRU/emulkon/releases/tag/v0.9.0");  // «Что нового» (#21)
+    CHECK(releasePage(r) == L"https://updates.emulkon.example/releases/tag/v0.9.0");  // «Что нового» (#21)
     // http — только для живого теста; файл — установщик той же версии; сумма — 64 hex.
     auto with = [&](const std::string& from, const std::string& to) {
         std::string s = good;
         s.replace(s.find(from), from.size(), to);
         return s;
     };
-    CHECK(!parseRelease(with("https://github.com", "http://github.com"), false, r, err));
-    CHECK(parseRelease(with("https://github.com", "http://github.com"), true, r, err));
+    CHECK(!parseRelease(with("https://example.org", "http://example.org"), false, r, err));
+    CHECK(parseRelease(with("https://example.org", "http://example.org"), true, r, err));
     CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "EmulkonSetup_0.8.0.exe"), false, r, err));
     CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "evil.exe"), false, r, err));
     CHECK(!parseRelease(with(std::string(64, 'A'), "abc"), false, r, err));
@@ -359,7 +359,7 @@ static void testTaskDialog() {
     int answer = 0;
     const bool shown = console::newVersionTaskDialog(
         nullptr, L"Вышла версия 0.9.2 от 2026-10-25", L"Установлена 0.9.1.",
-        L"https://github.com/iMironRU/emulkon/releases/tag/v0.9.2",
+        L"https://updates.emulkon.example/releases/tag/v0.9.2",
         L"Установщик проверяется по SHA-256 из описания выпуска; откроется мастер обновления — он перезапустит службу.",
         answer);
     closer.join();

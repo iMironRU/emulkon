@@ -120,8 +120,8 @@ static void testPrompt() {
 // Новая версия (issue #8, #20): ответ сервера, «свой» сервер, откуда можно скачать и как сохраняется установщик.
 static void testUpdates() {
     UpdateInfo u;
-    const std::string gh = "https://github.com/iMironRU/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe";
-    CHECK(parseUpdateState(R"({"current":"0.9.0","mode":"notify","available":true,"page":"https://github.com/iMironRU/emulkon/releases/tag/v0.9.1",)"
+    const std::string gh = "https://updates.emulkon.example/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe";
+    CHECK(parseUpdateState(R"({"current":"0.9.0","mode":"notify","available":true,"page":"https://updates.emulkon.example/releases/tag/v0.9.1",)"
                            R"("latest":{"version":"0.9.1","published":"2026-11-01","sha256":"ABCDEF","size":3,"url":")" + gh + R"("}})",
                            u));
     CHECK(u.available && u.version == L"0.9.1" && u.current == L"0.9.0" && u.sha256 == L"abcdef" && u.published == L"2026-11-01");
@@ -138,8 +138,8 @@ static void testUpdates() {
     CHECK(!downloadAllowed(L"https://mirror.local/EmulkonSetup_0.9.1.exe", L"0.9.1", false));
     CHECK(downloadAllowed(L"https://mirror.local/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
     CHECK(downloadAllowed(L"http://127.0.0.1:8799/downloads/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
-    CHECK(!downloadAllowed(L"https://github.com/iMironRU/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.2.exe", L"0.9.1", false));
-    CHECK(!downloadAllowed(L"https://github.com/evil/emulkon/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe", L"0.9.1", false));
+    CHECK(!downloadAllowed(L"https://updates.emulkon.example/releases/download/v0.9.1/EmulkonSetup_0.9.2.exe", L"0.9.1", false));
+    CHECK(!downloadAllowed(L"https://evil.example/releases/download/v0.9.1/EmulkonSetup_0.9.1.exe", L"0.9.1", false));
     CHECK(!downloadAllowed(L"ftp://x/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
     CHECK(!downloadAllowed(L"file:///C:/EmulkonSetup_0.9.1.exe", L"0.9.1", true));
     CHECK(!downloadAllowed(L"https://x/a/../EmulkonSetup_0.9.1.exe", L"0.9.1", true));

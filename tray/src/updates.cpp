@@ -90,7 +90,7 @@ bool downloadAllowed(const std::wstring& url, const std::wstring& version, bool 
     if (url.find(L"..") != std::wstring::npos || url.find(L'?') != std::wstring::npos || url.find(L'#') != std::wstring::npos) {
         return false;
     }
-    if (url == L"https://github.com/iMironRU/emulkon/releases/download/v" + version + file) return true;
+    if (url == L"https://updates.emulkon.example/releases/download/v" + version + file) return true;
     return localServer && (url.rfind(L"https://", 0) == 0 || url.rfind(L"http://", 0) == 0);
 }
 

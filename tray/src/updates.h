@@ -26,7 +26,7 @@ bool parseUpdateState(const std::string& json, UpdateInfo& out);
 bool isLocalServer(const std::wstring& url);
 
 // downloadAllowed — откуда трею можно скачать установщик: EmulkonSetup_<версия>.exe из выпуска на GitHub
-// (https://github.com/iMironRU/emulkon/releases/download/v<версия>/). Свой адрес (UpdateURL службы — стенды,
+// (https://updates.emulkon.example/releases/download/v<версия>/). Свой адрес (UpdateURL службы — стенды,
 // зеркало) — только от сервера этого компьютера: его настройки меняет администратор. Иначе — страница выпуска.
 bool downloadAllowed(const std::wstring& url, const std::wstring& version, bool localServer);
 
