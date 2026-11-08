@@ -256,8 +256,8 @@ static void testMaintenance() {
         s.replace(s.find(from), from.size(), to);
         return s;
     };
-    CHECK(!parseRelease(with("https://example.org", "http://example.org"), false, r, err));
-    CHECK(parseRelease(with("https://example.org", "http://example.org"), true, r, err));
+    CHECK(!parseRelease(with("https://updates.emulkon.example", "http://updates.emulkon.example"), false, r, err));
+    CHECK(parseRelease(with("https://updates.emulkon.example", "http://updates.emulkon.example"), true, r, err));
     CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "EmulkonSetup_0.8.0.exe"), false, r, err));
     CHECK(!parseRelease(with("EmulkonSetup_0.9.0.exe", "evil.exe"), false, r, err));
     CHECK(!parseRelease(with(std::string(64, 'A'), "abc"), false, r, err));
